@@ -2,6 +2,10 @@
 
 Questo forder contiene cose utili.
 
+## Impostazioni Positron
+
+Positron (come VS Code da cui deriva) è un ambiente molto configurabile e personalizzabile. Il file [Students.code-profile](Students.code-profile) contiene alcune impostazioni base usate nel corso (come ad es. scorciatoie da tastiera), che è utile caricare. Per farlo, dal menu a ingranaggio in basso a sinistra scegliere *Profile > Profiles*, poi nella colonna a sinistra della finestra che compare scegliere il menu a discesa a destra di *New profile* e da lì *Import profile ...* e quindi scegliere il file `Students.code-profile` scaricato.
+
 ## Keymap: `italyprog.zip`
 
 Questa è una mappa della tastiera migliorata per le tastiere italiane che aggiunge due scorciatoie per i caratteri che sono spesso usati nella programmazione e su Linux: tilda `~` e backtick `.
