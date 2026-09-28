@@ -1,6 +1,6 @@
 # Goodies
 
-Questo forder contiene cose utili.
+Questa cartella contiene cose utili.
 
 ## Impostazioni Positron
 
