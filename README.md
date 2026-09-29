@@ -10,4 +10,4 @@ Questo progetto verrà completato mano a mano che i vari argomenti saranno affro
 
 ## Cartella `Goodies`
 
-QUesta cartella contiene alcuni file di supporto comodi per il lavoro in Positron e R. Consultare il file [Goodies/README.md](Goodies/README.md) per i dettagli.
+Questa cartella contiene alcuni file di supporto comodi per il lavoro in Positron e R. Consultare il file [Goodies/README.md](Goodies/README.md) per i dettagli.
