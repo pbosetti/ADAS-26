@@ -2,12 +2,19 @@
 title: "Lezione 1"
 subtitle: "Introduzione a R"
 author: "Paolo Bosetti"
-format: html
+format:
+  html:
+    toc: true # ToC = Table of contents
+    number-sections: true
+  pdf: 
+    toc: true
+    number-sections: true
 ---
 
 # Documenti Quarto (estensione `.qmd`)
 
 Un documento Quarto è un file di testo che combina **testo formattato** (in Markdown) e **codice eseguibile** (in questo corso, codice R). Quando il documento viene *renderizzato*, il codice viene eseguito e i risultati (numeri, tabelle, grafici) vengono inseriti automaticamente nel documento finale (HTML, PDF, Word, ecc.).
+
 
 ## Intestazione in YAML
 
@@ -35,6 +42,15 @@ format:
 ```
 
 Dopo i due punti lo spazio è **obbligatorio**!
+
+
+## Rendering: requisiti
+
+Prima di renderizzare un documento Quarto, è necessario installare in R il *package* `rmarkdown`: dalla console di R eseguire il comando: `install.packages("rmarkdown")`.
+
+Per creare documenti in HTML (più rapido, adatto ad una preview del contenuto), è poi sufficiente cliccare il pulsante "Preview" sulla toolbar del documento.
+
+Per creare documenti in PDF (maggiore qualità), è necessario installare in R il package `tinytex`: dalla console di R eseguire il comando: `install.packages("tinytex")`, e successivamente eseguire `tinytex::install_tinytex()` per installare la distribuzione LaTeX completa. Questa operazione di setup va eseguita **una volta sola**. Dopodiché cliccare sul pulsante "Preview format..." e scegliere il formato "PDF (LaTeX)"
 
 ## Formattazione: Markdown
 
@@ -83,7 +99,9 @@ Il risultato dell'esecuzione compare subito sotto il blocco. Le scorciatoie di t
 * per eseguire la linea attiva (o la selezione): Windows `Ctrl+Invio`, Mac `Cmd+Invio`
 * per eseguire l'intero blocco: Windows `Ctrl+Maiusc+Invio`, Mac `Cmd+Maiusc+Invio`
 
-## Richiamo basi di R
+# Richiamo basi di R
+
+## Vettori
 
 Assegnazioni e vettori:
 
@@ -154,7 +172,7 @@ v
 :::
 
 
-
+## Matrici
 
 Le matrici si creano con la funzione `matrix()`:
 
@@ -189,6 +207,7 @@ Per il prodotto matriciale si usa invece `%*%` (le dimensioni devono essere comp
 m1 %*% t(m2)  # (2x3) %*% (3x2) = matrice 2x2
 ```
 
+## Tabelle (`data.frame`)
 
 Più utili delle matrici sono le **tabelle**, o `data.frame`: rappresentano matrici le cui colonne possono essere eterogenee (numeri, testo, valori logici, ...) e sono indicate da un **nome**.
 
