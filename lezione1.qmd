@@ -1,0 +1,264 @@
+---
+title: "Lezione 1"
+subtitle: "Introduzione a R"
+author: "Paolo Bosetti"
+format: html
+---
+
+# Documenti Quarto (estensione `.qmd`)
+
+Un documento Quarto è un file di testo che combina **testo formattato** (in Markdown) e **codice eseguibile** (in questo corso, codice R). Quando il documento viene *renderizzato*, il codice viene eseguito e i risultati (numeri, tabelle, grafici) vengono inseriti automaticamente nel documento finale (HTML, PDF, Word, ecc.).
+
+## Intestazione in YAML
+
+Ogni documento inizia con un'intestazione delimitata da due linee `---`, scritta in linguaggio YAML (un formato di testo del tipo `chiave: valore`). L'intestazione contiene i **metadati** del documento e le opzioni di rendering:
+
+```yaml
+---
+title: "Lezione 1"
+subtitle: "Introduzione a R"
+author: "Paolo Bosetti"
+format: html
+---
+```
+
+- `title`, `subtitle` e `author` definiscono titolo, sottotitolo e autore;
+- `format` stabilisce il formato di output (`html`, `pdf`, `docx`, ...);
+- altre opzioni utili sono ad esempio `toc: true` (indice dei contenuti), `date: today` (data di generazione) ed `embed-resources: true` (produce un unico file HTML autonomo).
+
+Attenzione all'**indentazione**: in YAML è significativa, e le opzioni annidate vanno indentate con due spazi, ad esempio:
+
+```yaml
+format:
+  html:
+    toc: true
+```
+
+Dopo i due punti lo spazio è **obbligatorio**!
+
+## Formattazione: Markdown
+
+Tipo di carattere: *corsivo*, **grassetto**, `monospaziato` (quest'ultimo per il codice).
+
+### Questo è un titolo di livello 3
+
+I paragrafi vanno separati da una o più **linee vuote**.
+
+Questo è il secondo *paragrafo*.
+
+<!--# questo è un commento -->
+
+I commenti non compaiono nel documento finale. Per i titoli si usano uno o più `#` all'inizio della linea (uno per ogni livello).
+
+## Elenchi puntati e numerati
+
+- Questo
+- è un elenco
+- puntato
+  - con un
+  - sottoelenco
+
+Gli elenchi numerati si fanno con i numeri o le lettere:
+
+1.  Primo elemento
+2.  Secondo elemento: questo \
+    è una ulteriore linea (a capo grazie al carattere `\`)
+3.  Terzo elemento
+    a.  Sottoelemento
+    b.  Altro sottoelemento
+4.  Quarto elemento
+
+
+## Notebook: unire testo e codice
+
+Si può inserire un blocco di codice (*chunk*) così:
+
+```{r}
+40 + 2
+```
+
+Il risultato dell'esecuzione compare subito sotto il blocco. Le scorciatoie di tastiera utili (in RStudio e Positron) sono:
+
+* per inserire un blocco: Windows `Ctrl+Alt+I`, Mac `Cmd+Option+I`
+* per eseguire la linea attiva (o la selezione): Windows `Ctrl+Invio`, Mac `Cmd+Invio`
+* per eseguire l'intero blocco: Windows `Ctrl+Maiusc+Invio`, Mac `Cmd+Maiusc+Invio`
+
+## Richiamo basi di R
+
+Assegnazioni e vettori:
+
+```{r}
+# assegnazione (si preferisce <- a =)
+x <- 5
+y = 3 # equivalente, ma meno usato
+# vettori: la funzione c() concatena i valori
+v <- c(10, 20, 30, 40, 50)
+v2 <- 1:5          # sequenza di interi
+v3 <- seq(0, 1, by = 0.25)
+v
+v2
+v3
+# indicizzazione di un vettore (in R gli indici partono da 1!)
+v[2]        # secondo elemento
+v[c(1, 3)]  # primo e terzo elemento
+v[-1]       # tutti tranne il primo
+v[2:4]      # dal secondo al quarto
+# indicizzazione logica e filtraggio
+v > 25      # vettore di valori logici
+v[v > 25]   # solo gli elementi maggiori di 25
+v[v > 15 & v < 45]  # combinazione di condizioni con & (AND) e | (OR)
+```
+
+Operazioni vettorializzate:
+
+```{r}
+# operazioni vettore-scalare: lo scalare è applicato a ogni elemento
+v * 2
+v + 1
+v^2
+# operazioni vettore-vettore e riciclo degli elementi del vettore più corto
+c(1, 2, 3, 4) + c(10, 20, 30, 40)  # elemento per elemento
+c(1, 2, 3, 4) + c(10, 20)          # il secondo vettore viene riciclato: 10, 20, 10, 20
+```
+
+Introduciamo una funzione utile nella forma più semplice (ne vedremo il dettaglio più avanti): `sample(n)` ritorna i numeri da `1` a `n` in ordine casuale:
+
+```{r}
+v1 <- sample(10)
+v1
+```
+
+La lunghezza di un vettore si ottiene con la funzione `length()`. Per ottenere gli ultimi tre elementi di un vettore, ad esempio:
+
+```{r}
+v <- sample(10)
+v[length(v)-2:0]
+```
+
+Qui `2:0` è la sequenza `2, 1, 0`, quindi gli indici sono `length(v)-2`, `length(v)-1` e `length(v)`. In alternativa, si può usare la funzione `tail(v, 3)`.
+
+È anche possibile usare `length()` per **cambiare** la lunghezza di un vettore:
+
+```{r}
+# allungare un vettore: i nuovi elementi sono NA (dato mancante)
+length(v) <- 12
+v
+# accorciare un vettore: gli elementi in eccesso vengono persi
+length(v) <- 5
+v
+```
+
+
+::: {.callout-note}
+**Attenzione**: le *funzioni freccia* come `length() <-` sono una particolarità di R. Non tutte le funzioni hanno l'equivalente freccia: consultare l'help in linea di una funzione per scoprire se la versione freccia (cioè con assegnazione) esiste (es: `?length`).
+:::
+
+
+
+
+Le matrici si creano con la funzione `matrix()`:
+
+```{r}
+# per righe:
+m1 <- matrix(1:6, nrow = 2, byrow = TRUE)
+m1
+# per colonne (comportamento predefinito)
+m2 <- matrix(1:6, nrow = 2)
+m2
+```
+
+L'indicizzazione avviene come per i vettori, ma passando a `[]` due indici (riga e colonna). Un indice mancante significa "intera riga/colonna":
+
+```{r}
+m1[2, 3]   # elemento in riga 2, colonna 3
+m1[1, ]    # intera prima riga
+m1[, 2]    # intera seconda colonna
+m1[, c(1, 3)]  # prima e terza colonna
+```
+
+Le operazioni aritmetiche tra matrici (`+`, `-`, `*`, `/`) avvengono elemento per elemento:
+
+```{r}
+m1 * m2
+m1 + 10
+```
+
+Per il prodotto matriciale si usa invece `%*%` (le dimensioni devono essere compatibili: colonne della prima = righe della seconda!). Per trasporre una matrice si usa `t()`:
+
+```{r}
+m1 %*% t(m2)  # (2x3) %*% (3x2) = matrice 2x2
+```
+
+
+Più utili delle matrici sono le **tabelle**, o `data.frame`: rappresentano matrici le cui colonne possono essere eterogenee (numeri, testo, valori logici, ...) e sono indicate da un **nome**.
+
+
+```{r}
+# creazione di una tabella
+df <- data.frame(
+  A = 1:10,
+  B = sample(10),
+  Lettere = LETTERS[1:10]
+)
+df
+```
+
+
+L'indicizzazione avviene esattamente come per le matrici con `[]`, oppure estraendo un'intera colonna **per nome** come vettore: 
+
+```{r}
+df[3, ]            # terza riga
+df[, 2]            # seconda colonna
+df[3, "B"]         # elemento singolo, con la colonna indicata per nome
+df$B               # intera colonna B, come vettore
+df[["B"]]          # equivalente a df$B
+```
+
+Nuove colonne possono essere create assegnandole per nome:
+
+```{r}
+df$NuovaColonna <- df$A*2
+head(df)  # mostra solo le prime righe
+```
+
+La colonna può essere a sua volta indicizzata, e può essere usata per filtrare le righe della tabella (indicizzazione logica):
+
+```{r}
+df[df$B>5,]
+```
+
+
+# Funzioni di statistica descrittiva
+
+Funzioni campionarie:
+
+```{r}
+sum(df$B^2)   # somma dei quadrati
+mean(df$B)    # media campionaria
+sd(df$B)      # deviazione standard campionaria
+var(df$B)     # varianza campionaria
+```
+
+La somma dei quadrati degli scarti dalla media si calcola ad esempio con $\sum_{i=1}^{N}(y_i - \bar y)^2$
+
+```{r}
+ss <- sum((df$B - mean(df$B))^2)
+ss
+```
+
+Si noti che la varianza campionaria è proprio `ss/(N-1)`:
+
+```{r}
+ss / (length(df$B) - 1)
+var(df$B)
+```
+
+Attenzione ai valori `NA` (dati mancanti): quasi tutte le funzioni statistiche restituiscono `NA` se anche un solo elemento è `NA`, a meno di indicare esplicitamente di ignorarli con `na.rm=TRUE`:
+
+```{r}
+v5 <- c(3, 7, 4, NA, 9)
+mean(v5)                  # NA
+mean(v5, na.rm=TRUE)      # ignora gli NA
+mean(v5[!is.na(v5)])      # equivalente: filtra gli NA a mano
+length(v5[!is.na(v5)])    # numero di dati validi
+```
