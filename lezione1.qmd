@@ -2,6 +2,7 @@
 title: "Lezione 1"
 subtitle: "Introduzione a R"
 author: "Paolo Bosetti"
+lang: IT-it
 format:
   html:
     toc: true # ToC = Table of contents
@@ -10,6 +11,13 @@ format:
     toc: true
     number-sections: true
 ---
+
+```{r setup}
+#| include: FALSE
+# La linea qui sopra nasconde questo blocco di codice nel documento finale
+library(tidyverse)
+source("my_functions.R")
+```
 
 # Documenti Quarto (estensione `.qmd`)
 
@@ -281,3 +289,257 @@ mean(v5, na.rm=TRUE)      # ignora gli NA
 mean(v5[!is.na(v5)])      # equivalente: filtra gli NA a mano
 length(v5[!is.na(v5)])    # numero di dati validi
 ```
+
+
+# Intermezzo: programmazione R
+
+## Funzioni pesonali
+
+Come si crea una funzione? le funzioni di R si creano con la parola chiave `function()`. Ad esempio, una funzione che moltiplica due numeri:
+
+```{r}
+my_f <- function(a, b = 2) {
+  return(a * b)
+}
+```
+
+Se il blocco di una funzione ha una sola istruzione, si possono omettere le parentesi graffe. Inoltre, ogni funzione restituisce automaticamente l'ultimo valore calcolato, quindi si può omettere anche `return()`. Quindi le due definizioni seguenti sono equivalenti a quella sopra:
+
+```{r}
+my_f <- function(a, b = 2) return(a * b)
+my_f <- function(a, b = 2) a * b
+```
+
+
+::: {.callout-note}
+Come si vede, per essere usata una funzione deve essere **assegnata a una variabile** (in questo caso `my_f`). In R le funzioni sono **oggetti di prima classe**, quindi possono essere passate come argomenti ad altre funzioni, restituite come valori da altre funzioni, assegnate a variabili, ecc.
+
+È ovviamente anche possibile ri-assegnare una funzione, come fatto nell'ultimo blocco.
+:::
+
+Vediamo un esempio più complesso: una funzione che calcola la somma di un vettore. La funzione `length()` restituisce la lunghezza di un vettore, e il ciclo `for` permette di iterare su tutti gli elementi del vettore.
+
+```{r}
+my_sum <- function(v) {
+  s <- 0
+  for (i in 1:length(v)) {
+    s <- s + v[i]
+  }
+  return(s)
+}
+
+my_sum(1:3)
+```
+
+Il loop `for` può anche iterare direttamente sugli elementi del vettore, senza usare gli indici: vediamo come fare, aggiungendo anche il controllo sui valori `NA` (dati mancanti):
+
+```{r}
+my_sum <- function(v, na.rm = FALSE) {
+  s <- 0
+  for (e in v) {
+    if (!is.na(e)) s <- s + e
+  }
+  return(s)
+}
+
+my_sum(c(1:3, NA))
+```
+
+Oltre alla struttura condizionale `if|else`, è disponibile anche la funzione `ifelse()`
+
+```{r}
+my_sum <- function(v, na.rm = FALSE) {
+  s <- 0
+  for (e in v) s <- s + ifelse(is.na(e), 0, e)
+  return(s)
+}
+
+my_sum(c(1:3, NA))
+```
+
+Spesso succede di creare funzioni che possono essere ri-utilizzate in differenti documenti. In questo caso è utile salvare le funzioni in un file separato, detto *script* o *libreria*, e richiamarlo con la funzione `source()`. In questo modo le funzioni definite nel file esterno diventano disponibili nel documento corrente.
+
+
+::: {.callout-important}
+L'estensione dei file script di R è `.R`, mentre l'estensione dei documenti Quarto è `.qmd`. In questo corso, il file `my_functions.R` contiene le funzioni `my_f()` e `my_sum()`, che sono richiamate nel documento `lezione1.qmd`.
+:::
+
+Per caricare il nostro file "libreria":
+
+```{r}
+source("my_functions.R")
+```
+
+
+::: {.callout-tip}
+Di solito è opportuno caricare librerie e pacchetti all'inizio del documento, in un blocco di setup, come fatto all'inizio di questo documento. In questo modo le funzioni definite nel file esterno diventano disponibili in tutti i blocchi di codice del documento.
+:::
+
+
+## Tidyverse
+
+Introduciamo l'uso di una libreria (*package*) molto utile e che sarà utilizzata estensivamente duranet il corso: [**Tidyverse**](https://www.tidyverse.org/). Tidyverse è un insieme di pacchetti R che condividono una filosofia comune e sono progettati per lavorare bene insieme. La introdurremo gradualmente, ma per ora ci limitiamo a installarla ecaricarla all'inizio del documento con `library(tidyverse)`. In questo modo tutte le funzioni dei pacchetti Tidyverse diventano disponibili nel documento.
+
+
+::: {.callout-important}
+Per installare Tidyverse, nella console di R eseguire `install.packages("tidyverse")` (è necessario essere connessi a Internet). Una volta installata, la libreria va caricata all'inizio di ogni documento con `library(tidyverse)`.
+:::
+
+### Pipe
+
+La prima funzionalità di Tidiverse che incontriamo è la *pipe* `%>%`, che permette di concatenare più funzioni in sequenza, rendendo più chiara l'esecuzione di più funzioni in sequenza. 
+
+Infatti, spesso succede di dover annidare funzioni, cioè usare il risultato di una funzione come argomento di un'altra funzione. Ad esempio potrei scrivere:
+
+```{r}
+my_f(my_sum(c(1,3,2)), b=3)
+```
+
+L'espressione è corretta, ma non è molto chiara né leggibile: la prima funzione ad essere chiamata è infatti la più interna, e è necessario contare bene le parentesi per essere sicuri che i vari parametri siano passati alle funzioni giuste.
+
+Per rendere più chiara l'espressione potrei usare variabili intermedie:
+
+```{r}
+v <- c(1,3,2)
+v_s <- my_sum(v)
+v_r <- my_f(v_s, b=3)
+```
+
+Tuttavia, ciò "sporca" l'ambiente definendo molte variabili temporanee che non servono più dopo l'esecuzione e che pure occupano memoria (inutilmente!).
+
+La *pipe* rende più chiara l'esecuzione di più funzioni in sequenza. Essa passa l'output della funzione a sinistra come primo argomento della funzione a destra. Quindi l'esempio precedente può essere scritto così:
+
+```{r}
+c(1,3,2) %>% 
+  my_sum() %>% 
+  my_f(b=3)
+```
+
+Se voglio salvare il risultato, ovviamente:
+
+```{r}
+res <- c(1,3,2) %>% 
+  my_sum() %>% 
+  my_f(b=3)
+```
+
+### Tibble
+
+Un'altra struttura dati importante in Tidyverse è la `tibble`. Una `tibble` è una variante evoluta di un `data.frame`. Si crea una tibble con la funzione `tibble()`, che accetta come argomenti i nomi delle colonne e i valori corrispondenti, esattamente come `data.frame`. 
+
+In più, però, consente di definire una colonna come funzione di altre colonne, definite prima. Ad esempio:
+
+```{r}
+tibble(
+  A = 1:10,
+  B = A * 2 # Questo NON FUNZIONEREBBE con data.frame()!
+)
+```
+
+# Statistica inferenziale
+
+## Funzioni di distribuzione
+
+In generale R dispone di numerose funzioni di distribuzione, i cui nomi seguono questo pattern: `[r|p|q|d][nome]()`
+
+Ad esempio, per la distribuzione normale, le funzioni sono 
+
+* `rnorm()`: genera numeri casuali normali
+* `pnorm()`: probabilità di un dato valore (CDF)
+* `qnorm()`: quantile di una data probabilità
+* `dnorm()`: PDF di un dato valore
+
+Le distribuzioni più comuni sono:
+
+* `norm`: normale
+* `unif`: uniforme
+* `t`: T di Student
+* `chisq`: Chi quadro
+* `f`: F di Snedecor
+* `binom`: binomiale (discreta)
+* `pois`: Poisson (discreta)
+* `geom`: geometrica (discreta)
+
+Ad esempio, per generare 10 valori casuali da una distribuzione normale con media 3 e deviazione standard 5:
+
+```{r}
+set.seed(1)
+rnorm(10, mean=3, sd=5)
+```
+
+Si notoi che `set.seed()` serve a fissare il seme del generatore di numeri casuali, in modo che i risultati siano riproducibili. Se si esegue più volte lo stesso codice senza fissare il seme, i valori generati saranno diversi ogni volta:
+
+```{r}
+rnorm(10, mean=3, sd=5)
+```
+
+Per le funzioni PDF, CDF e quantile, ritardiamo l'illustrazione a quando avremo imparato a realizzare grafici in R, in modo da poter visualizzare le distribuzioni.
+
+
+## Test di Student
+
+Vediamo come realizzare un test di Student per confrontare due campioni. Creiamo due campioni casuali e applichiamo la funzione `t.test()`:
+
+```{r}
+set.seed(1)
+c1 <- rnorm(12, 10, 1.1)
+c2 <- rnorm(10, 15.2, 1.1)
+
+t.test(c1, c2)
+```
+
+
+::: {.callout-important}
+### Attenzione!
+di default, `t.test()` assume che i due campioni siano eteroschedastici, e effettua quindi un testdi Welch! consultare l'help in linea di `t.test()` per maggiori dettagli. Per forzare l'ipotesi di varianze uguali, usare l'opzione `var.equal=TRUE`.
+:::
+
+Per un test a un campione è opportuno specificare il valore di $\mu_0$ nell'ipotesi nulla, con l'opzione `mu`:
+
+```{r}
+t.test(c1, mu=9)
+```
+
+Per verificare l'omoschedasticità dei due campioni, si può utilizzare il test della varianza:
+
+```{r}
+var.test(c1,c2)
+```
+
+Il *p*-value grande consiglia di accettare l'upotesi nulla di varianze uguali, quindi possiamo forzare l'ipotesi di varianze uguali nel test di Student:
+
+```{r}
+t.test(c1, c2, var.equal=T)
+```
+
+Le funzioni di test oltre che stampare il report ritornano anche un oggetto risultato che può essere salvato per accedere programmaticamente ai valori di interesse (statistica del test, p-value, intervallo di confidenza, ecc.). Ad esempio:
+
+```{r}
+vt <- var.test(c1,c2)
+attributes(vt) # mostra il contenuto di vt
+```
+
+In questo modo possiamo accedere al p-value del test della varianza con `vt$p.value`. Possiamo quindi usare questo valore per decidere se forzare o meno l'ipotesi di varianze uguali nel test di Student:
+
+```{r}
+t.test(c1, c2, var.equal=(vt$p.value > 0.05))
+```
+
+
+::: {.callout-note}
+### Oggetti compositi e liste
+
+Le funzioni di test ritornano un oggetto che è in realtà una **lista**. Una lista è una collezione eterogenea di valori e oggetti identificati per nome.
+
+Una lista puù essere creata con la funzione `list()`:
+
+```{r}
+l <- list(n1=10, n2=1:4, n3="test", n4=vt)
+```
+
+Per accedere ai contenuti della lista si usa lo stesso operatore `$` che abbiamo visto per le tabelle: `l$n1` restituisce il numero 10, `l$n2` restituisce il vettore `1:4`, `l$n3` restituisce la stringa `"test"`, e `l$n4` restituisce l'oggetto risultato del test della varianza. Per accedere al p-value del test della varianza, quindi, possiamo scrivere:
+
+```{r}
+l$n4$p.value
+```
+:::
