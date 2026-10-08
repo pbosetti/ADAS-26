@@ -550,7 +550,7 @@ t.test(c1, c2, var.equal=(vt$p.value > 0.05))
 
 Le funzioni di test ritornano un oggetto che è in realtà una **lista**. Una lista è una collezione eterogenea di valori e oggetti identificati per nome.
 
-Una lista puù essere creata con la funzione `list()`:
+Una lista più essere creata con la funzione `list()`:
 
 ```{r}
 l <- list(n1=10, n2=1:4, n3="test", n4=vt)
@@ -562,3 +562,226 @@ Per accedere ai contenuti della lista si usa lo stesso operatore `$` che abbiamo
 l$n4$p.value
 ```
 :::
+
+Agli elementi di una lista si può accedere anche per posizione:
+
+```{r}
+l[[2]]
+```
+
+
+
+# Grafici con `GGplot2`
+
+Prepariamo dei dati:
+
+```{r}
+data <- tibble(
+  time = seq(0, 20, length.out=30),
+  yn   = 2 + 0.7*time + 0.05*time^2,       # valore nominale
+  y    = yn + rnorm(length(time), 0, 2.5), # misura con disturbo
+  c    = sample(length(time)),             # numero casuale
+  when = "sera"                            # colonna costante
+)
+data
+data$when[1:10] <- "mattina" # modifico solo i primi 10 elementi
+data
+```
+
+
+## Scatterplot
+
+Tre funzioni base:
+
+* `ggplot()` per creare l'ambiente e caricare i dati da una tabella
+* `aes()` per associare le colonne della tabella agli elementi *estetici* del grafico (es. assi, colori, tipi di linea, ecc.)
+* `geom_*()` per creare uno o più *layer*, ciascuno con la sua componente grafica (il plot vero e proprio)
+
+
+```{r}
+data %>% 
+  ggplot(aes(x=time)) +
+  geom_line(aes(y=yn), color="red") +      # grafico a linea
+  geom_point(aes(y=y, color=when, size=c)) # grafico a dispersione
+```
+
+
+::: {.callout-important}
+Le **estetiche** disponibili per ogni geometria sono elencate nell'help.
+
+Un'estetica può essere passata in `aes()`, e allora richiede una variabile e viene fatta variare di conseguenza. Oppure può essere passata come argomento della geometria, e allora deve essere una costante e vale per l'intera geometria.
+:::
+
+
+## Boxplot
+
+Creiamo una tabella con tre campioni:
+
+```{r}
+set.seed(123)
+data <- tibble(
+  c1 = rnorm(10, mean=12, sd=3),
+  c2 = rnorm(10, mean=14, sd=2.2),
+  c3 = rnorm(10, mean=9, sd=3.5)
+)
+
+
+```
+
+Il boxplot vuole in ascissa il nome del campione (variabile discreta) e in ordinata il valore delle osservazioni (variabile continua). Dobbiamo quindi riorganizzare la tabella in modo da avere due colonne, una con i noomi dei campioni e una coi rispettivi valori. Questa operazione può essere fatta con `pivit_longer()`:
+
+```{r}
+data %>% 
+  pivot_longer(c1:c3, names_to="campione", values_to = "valore") %>% 
+  ggplot(aes(x=campione)) +
+  geom_point(aes(y=valore), color="red") +
+  geom_boxplot(aes(y=valore, fill=campione), alpha=0.5) +
+  labs(title="Boxplot esempio", x="Numero campione", y="Massa (kg)")
+```
+
+
+::: {.callout-tip}
+### Esercizio
+Consultando l'help per `?tidyr::pivot_wider()` provare a tornare alla tabella originale (10 righe e tre colonne), invertendo l'operazione di `pivot_longer()`.
+:::
+
+
+
+## Istogrammi
+
+Un istogramma non richiede una tabella, perché l'origine dei dati è un solo vettore:
+
+```{r}
+set.seed(1)
+c4 <- rnorm(30)
+
+ggplot() + 
+  geom_histogram(aes(x=c4), 
+    binwidth=0.5, 
+    color=gray(1/3), 
+    fill="red", alpha=0.5)
+
+```
+
+
+# Funzioni di distribuzione e loro grafici
+
+## Densità di probabilità (PDF)
+
+Per la distribuzione normale, la PDF è `dnorm(x, mean, sd)`:
+
+```{r}
+data <- tibble(
+  x = seq(-3, 3, length.out=200),
+  y_std = dnorm(x),
+  y = dnorm(x, sd=0.5),
+  t = dt(x, 10)
+)
+
+data %>% 
+  ggplot(aes(x=x)) + 
+  geom_line(aes(y=y_std), color="red") + 
+  geom_line(aes(y=y), color="blue") +
+  geom_vline(xintercept = c(-3, 0, 3)) + 
+  geom_hline(yintercept = 0)
+```
+
+Invece che creare manualmente una serie per ogni normale, è più efficiente usare un pivot:
+
+```{r}
+data %>%
+  pivot_longer(-x, names_to="normale", values_to="p") %>% 
+  ggplot(aes(x=x)) + 
+  geom_line(aes(y=p, group=normale, color=normale)) + 
+  geom_vline(xintercept = c(-3, 0, 3)) + 
+  geom_hline(yintercept = 0)
+```
+
+## Ripartizione (CDF)
+
+```{r}
+tibble(
+  x = seq(-3, 3, length.out=200),
+  pl = pt(x, 10, lower.tail = TRUE),
+  pu = pt(x, 10, lower.tail = FALSE)
+) %>% 
+  ggplot(aes(x=x)) +
+  geom_line(aes(y=pl), color="red") +
+  geom_line(aes(y=pu), color="blue")
+```
+
+
+
+## Quantile
+
+```{r}
+tibble(
+  x = seq(0, 1, length.out=200),
+  pl = qt(x, 10, lower.tail = TRUE),
+  pu = qt(x, 10, lower.tail = FALSE)
+) %>% 
+  ggplot(aes(x=x)) +
+  geom_line(aes(y=pl), color="red") +
+  geom_line(aes(y=pu), color="blue") + 
+  geom_function(fun = qnorm, color="darkgreen", args=list(mean=0.1))
+```
+
+
+Se si vuole solo plottare una funzione, si può anche fare a meno di costruirsi una tabella dati e usare l'apposita geometria `geom_function()`, che vuole il *nome* della funzione da plottare (senza argomenti né parentesi!) e opzionalmente l'intervallo dell'ascissa:  
+
+```{r}
+ggplot() + geom_function(fun=dnorm, xlim=c(-3, 3))
+```
+
+
+::: {.callout-tip}
+### Esercizio
+
+dopo aver studiato l'esempio sopra riportato per il test di Student mediante la funzione `t.test()`, e dopo aver riletto le slide di teoria relative, implementare una funzione tale che:
+
+```r
+t_test <- function(x, y, var.equal=TRUE, alpha=0.05) {
+  # restituisco una lista con le componenti:
+  list(
+    t0 = ...,
+    p.value = ...,
+    nu = ...,
+    mean = c(m1, m2),
+    conf.int = c(..., ...)
+  )
+}
+```
+
+:::
+
+
+
+
+# Accesso a file
+
+## Caricamento dati
+
+
+## Salvataggio dati
+
+
+
+
+# Gestione tabelle
+
+## Filtraggio
+
+
+## Riordino
+
+
+## Selezione
+
+
+## Mdifica
+
+
+## Raggruppamento
+
+
+## Trasposizione
