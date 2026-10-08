@@ -573,9 +573,27 @@ l[[2]]
 
 # Grafici con `GGplot2`
 
-Prepariamo dei dati:
+Il pacchetto `ggplot2` (anch'esso parte di Tidyverse, quindi già caricato con `library(tidyverse)`) è lo strumento più diffuso in R per realizzare grafici. Si basa su un'idea precisa, la cosiddetta **grammatica dei grafici** (*grammar of graphics*): ogni grafico, per quanto complesso, può essere descritto combinando pochi elementi indipendenti:
+
+- i **dati**, cioè una tabella (`tibble` o `data.frame`);
+- le **mappature estetiche** (*aesthetics*), che stabiliscono quale colonna della tabella controlla quale proprietà visiva del grafico (posizione in $x$ e $y$, colore, dimensione, forma, ...);
+- le **geometrie**, cioè il tipo di oggetto grafico con cui i dati vengono rappresentati (punti, linee, barre, box, ...);
+- altri elementi opzionali: etichette, scale, temi grafici, suddivisione in sotto-grafici, ecc.
+
+Un grafico si costruisce quindi **per strati** (*layer*), aggiungendo un elemento alla volta con l'operatore `+`. Questo approccio è molto diverso da quello delle funzioni grafiche di base di R (come `plot()`), ma una volta compreso permette di realizzare grafici anche molto elaborati con poche righe di codice.
+
+::: {.callout-important}
+### `%>%` oppure `+`?
+La pipe `%>%` serve a passare i dati *dentro* la funzione `ggplot()`; da quel momento in poi gli strati del grafico si sommano con `+`. Un errore molto comune è usare `%>%` al posto di `+` (o viceversa) tra gli strati del grafico: R in questo caso restituisce un errore.
+:::
+
+
+## Preparazione dei dati
+
+`ggplot2` lavora sempre con tabelle in cui **ogni colonna è una variabile** e **ogni riga è un'osservazione** (questo formato si chiama *tidy data*, da cui il nome Tidyverse). Prepariamo quindi una tabella di esempio, che simula una grandezza $y$ misurata nel tempo e affetta da un disturbo casuale:
 
 ```{r}
+set.seed(0)
 data <- tibble(
   time = seq(0, 20, length.out=30),
   yn   = 2 + 0.7*time + 0.05*time^2,       # valore nominale
@@ -584,26 +602,63 @@ data <- tibble(
   when = "sera"                            # colonna costante
 )
 data
+```
+
+Alcune osservazioni sul codice:
+
+- `seq(0, 20, length.out=30)` genera 30 valori equispaziati tra 0 e 20;
+- all'interno di `tibble()` è possibile usare le colonne **già definite** per calcolare le successive: `yn` dipende da `time`, e `y` dipende da `yn`. Questo non è possibile con `data.frame()`;
+- `sample(n)` restituisce una permutazione casuale degli interi da 1 a `n`;
+- un valore singolo (come `"sera"`) viene **ripetuto** automaticamente su tutte le righe.
+
+Possiamo poi modificare una parte di una colonna con la consueta indicizzazione dei vettori:
+
+```{r}
 data$when[1:10] <- "mattina" # modifico solo i primi 10 elementi
 data
 ```
 
+Ora la colonna `when` è una variabile **categorica** (o *discreta*) con due livelli, `"mattina"` e `"sera"`, mentre `time`, `yn` e `y` sono variabili **continue**. Questa distinzione è importante, perché `ggplot2` sceglie automaticamente il modo di rappresentare una variabile (ad es. la scala di colori) in base al suo tipo.
+
 
 ## Scatterplot
 
-Tre funzioni base:
+Le tre funzioni fondamentali di `ggplot2` sono:
 
 * `ggplot()` per creare l'ambiente e caricare i dati da una tabella
 * `aes()` per associare le colonne della tabella agli elementi *estetici* del grafico (es. assi, colori, tipi di linea, ecc.)
 * `geom_*()` per creare uno o più *layer*, ciascuno con la sua componente grafica (il plot vero e proprio)
 
+Vediamo come il grafico si costruisce passo passo. La sola chiamata a `ggplot()` con le estetiche crea un grafico **vuoto**: gli assi sono già dimensionati sui dati, ma non c'è ancora nessuna geometria che li rappresenti:
 
 ```{r}
-data %>% 
+data %>%
+  ggplot(aes(x=time, y=y))
+```
+
+Aggiungendo uno strato con `geom_point()` otteniamo un diagramma a dispersione (*scatterplot*):
+
+```{r}
+data %>%
+  ggplot(aes(x=time, y=y)) +
+  geom_point()
+```
+
+Possiamo aggiungere quanti strati vogliamo. Ad esempio, una linea per il valore nominale e dei punti per le misure, colorati in base alla colonna `when` e con dimensione proporzionale alla colonna `c`:
+
+```{r}
+data %>%
   ggplot(aes(x=time)) +
   geom_line(aes(y=yn), color="red") +      # grafico a linea
   geom_point(aes(y=y, color=when, size=c)) # grafico a dispersione
 ```
+
+Si noti che le estetiche possono essere definite in due posizioni:
+
+- dentro `ggplot()`: valgono per **tutti** gli strati del grafico (qui `x=time`, comune a linea e punti);
+- dentro una singola `geom_*()`: valgono **solo per quello strato** (qui `y=yn` per la linea e `y=y` per i punti).
+
+Le legende vengono create automaticamente per ogni estetica associata a una colonna (qui `color` e `size`).
 
 
 ::: {.callout-important}
@@ -612,8 +667,44 @@ Le **estetiche** disponibili per ogni geometria sono elencate nell'help.
 Un'estetica può essere passata in `aes()`, e allora richiede una variabile e viene fatta variare di conseguenza. Oppure può essere passata come argomento della geometria, e allora deve essere una costante e vale per l'intera geometria.
 :::
 
+La differenza è importante e fonte di errori frequenti. Confrontiamo:
+
+```{r}
+data %>%
+  ggplot(aes(x=time, y=y)) +
+  geom_point(color="blue")       # costante: tutti i punti blu
+```
+
+```{r}
+data %>%
+  ggplot(aes(x=time, y=y)) +
+  geom_point(aes(color="blue"))  # SBAGLIATO: "blue" è trattato come un dato!
+```
+
+Nel secondo caso `ggplot2` interpreta `"blue"` come una variabile categorica con un solo livello (di nome `"blue"`), le assegna il primo colore della tavolozza predefinita (rosso) e crea una legenda inutile.
+
+Infine, un grafico è un oggetto R come gli altri: può essere salvato in una variabile e arricchito in un secondo momento aggiungendo altri strati, ad esempio etichette (`labs()`) e un tema grafico (`theme_*()`):
+
+```{r}
+p <- data %>%
+  ggplot(aes(x=time)) +
+  geom_line(aes(y=yn), color="red") +
+  geom_point(aes(y=y, color=when))
+
+p +
+  labs(
+    title = "Misure nel tempo",
+    x = "Tempo (s)",
+    y = "Misura (mm)",
+    color = "Momento"  # titolo della legenda dei colori
+  ) +
+  theme_bw() # cambia il "tema", cioè lo stile grafico
+```
+
 
 ## Boxplot
+
+Il **boxplot** è un grafico che riassume la distribuzione di un campione: la linea centrale della scatola è la **mediana**, i lati della scatola sono il primo e il terzo **quartile** (quindi la scatola contiene il 50% centrale delle osservazioni), i "baffi" si estendono fino all'osservazione più estrema che dista non più di 1.5 volte l'intervallo interquartile dalla scatola, e le eventuali osservazioni oltre i baffi sono rappresentate come punti isolati (possibili *outlier*). È lo strumento ideale per confrontare visivamente più campioni.
 
 Creiamo una tabella con tre campioni:
 
@@ -624,20 +715,41 @@ data <- tibble(
   c2 = rnorm(10, mean=14, sd=2.2),
   c3 = rnorm(10, mean=9, sd=3.5)
 )
-
-
+data
 ```
 
-Il boxplot vuole in ascissa il nome del campione (variabile discreta) e in ordinata il valore delle osservazioni (variabile continua). Dobbiamo quindi riorganizzare la tabella in modo da avere due colonne, una con i noomi dei campioni e una coi rispettivi valori. Questa operazione può essere fatta con `pivit_longer()`:
+Questa tabella è in formato **largo** (*wide*): ogni campione occupa una colonna diversa. Il boxplot però vuole in ascissa il nome del campione (variabile discreta) e in ordinata il valore delle osservazioni (variabile continua): ci serve cioè una tabella in formato **lungo** (*long*), con due colonne, una con i nomi dei campioni e una coi rispettivi valori. Questa operazione può essere fatta con `pivot_longer()`, che ha tre argomenti principali:
+
+- le colonne da "impilare" (qui `c1:c3`, cioè tutte le colonne da `c1` a `c3`);
+- `names_to`: il nome della nuova colonna che conterrà i **nomi** delle vecchie colonne;
+- `values_to`: il nome della nuova colonna che conterrà i **valori**.
 
 ```{r}
-data %>% 
-  pivot_longer(c1:c3, names_to="campione", values_to = "valore") %>% 
+data %>%
+  pivot_longer(c1:c3, names_to="campione", values_to = "valore")
+```
+
+La tabella risultante ha 30 righe ($3 \times 10$) e 2 colonne. Ora possiamo passarla direttamente a `ggplot()`:
+
+```{r}
+data %>%
+  pivot_longer(c1:c3, names_to="campione", values_to = "valore") %>%
   ggplot(aes(x=campione)) +
   geom_point(aes(y=valore), color="red") +
   geom_boxplot(aes(y=valore, fill=campione), alpha=0.5) +
   labs(title="Boxplot esempio", x="Numero campione", y="Massa (kg)")
 ```
+
+Si notino:
+
+- la sovrapposizione di due strati: i punti (le singole osservazioni) e i boxplot;
+- l'estetica `fill`, che colora il **riempimento** della scatola (mentre `color` colora il **bordo**);
+- l'argomento `alpha`, che regola la trasparenza (da 0, trasparente, a 1, opaco), permettendo di vedere i punti sotto le scatole.
+
+::: {.callout-note}
+### Specificare le colonne in `pivot_longer()`
+Le colonne da impilare possono essere indicate in vari modi: con un intervallo (`c1:c3`), con un elenco (`c(c1, c2, c3)`), per esclusione (`-x` significa "tutte le colonne tranne `x`"), oppure con funzioni di selezione come `starts_with("c")`. Lo stesso vale per molte altre funzioni di Tidyverse.
+:::
 
 
 ::: {.callout-tip}
@@ -649,26 +761,51 @@ Consultando l'help per `?tidyr::pivot_wider()` provare a tornare alla tabella or
 
 ## Istogrammi
 
-Un istogramma non richiede una tabella, perché l'origine dei dati è un solo vettore:
+L'**istogramma** rappresenta la distribuzione di frequenza di un singolo campione: l'asse $x$ viene suddiviso in intervalli (*bin*) e l'altezza di ciascuna barra è il numero di osservazioni che cadono in quell'intervallo. Un istogramma non richiede una tabella, perché l'origine dei dati è un solo vettore: in questo caso chiamiamo `ggplot()` senza argomenti e passiamo il vettore direttamente all'estetica:
 
 ```{r}
 set.seed(1)
 c4 <- rnorm(30)
 
-ggplot() + 
-  geom_histogram(aes(x=c4), 
-    binwidth=0.5, 
-    color=gray(1/3), 
+ggplot() +
+  geom_histogram(aes(x=c4),
+    binwidth=0.5,
+    color=gray(1/3),
     fill="red", alpha=0.5)
 
+```
+
+Il parametro `binwidth` fissa la larghezza degli intervalli; in alternativa si può fissare il loro numero con `bins`. La scelta di questi parametri influenza molto l'aspetto dell'istogramma, soprattutto per campioni piccoli: è bene provare più valori.
+
+Spesso è utile rappresentare in ordinata la **densità** invece del conteggio, in modo che l'area totale delle barre sia pari a 1 e l'istogramma sia confrontabile con una densità di probabilità teorica. Si ottiene con `y=after_stat(density)` (cioè: usa per $y$ la densità *calcolata* da `geom_histogram()`). Possiamo così sovrapporre la PDF della normale standard con `geom_function()` (che vedremo meglio nella prossima sezione):
+
+```{r}
+tibble(x = c4) %>%
+  ggplot(aes(x=x)) +
+  geom_histogram(aes(y=after_stat(density)),
+    bins=8,
+    color=gray(1/3),
+    fill="red", alpha=0.5) +
+  geom_function(fun=dnorm, color="blue")
 ```
 
 
 # Funzioni di distribuzione e loro grafici
 
+In R, per ogni distribuzione di probabilità sono disponibili quattro funzioni, il cui nome è composto da un **prefisso** che indica cosa calcolare e da una **radice** che identifica la distribuzione:
+
+| Prefisso | Significato | Esempio (normale) |
+|:--------:|:------------|:------------------|
+| `d` | densità di probabilità (PDF), $f(x)$ | `dnorm(x)` |
+| `p` | funzione di ripartizione (CDF), $F(x) = P(X \leq x)$ | `pnorm(x)` |
+| `q` | quantile, cioè l'inversa della CDF: $F^{-1}(p)$ | `qnorm(p)` |
+| `r` | generazione di numeri casuali | `rnorm(n)` |
+
+Le radici più comuni sono `norm` (normale), `t` (Student), `chisq` ($\chi^2$), `f` (Fisher), `unif` (uniforme), `binom` (binomiale) e `pois` (Poisson). Ad esempio, `qchisq()` è la funzione quantile della $\chi^2$, e `dbinom()` è la funzione di probabilità della binomiale. Gli argomenti aggiuntivi sono i parametri della distribuzione (es. `mean` e `sd` per la normale, i gradi di libertà `df` per la $t$).
+
 ## Densità di probabilità (PDF)
 
-Per la distribuzione normale, la PDF è `dnorm(x, mean, sd)`:
+Per la distribuzione normale, la PDF è `dnorm(x, mean, sd)`; se `mean` e `sd` sono omessi, valgono rispettivamente 0 e 1 (normale standard). Costruiamo una tabella con un'ascissa fitta (200 punti) e alcune PDF calcolate su di essa:
 
 ```{r}
 data <- tibble(
@@ -678,60 +815,107 @@ data <- tibble(
   t = dt(x, 10)
 )
 
-data %>% 
-  ggplot(aes(x=x)) + 
-  geom_line(aes(y=y_std), color="red") + 
+data %>%
+  ggplot(aes(x=x)) +
+  geom_line(aes(y=y_std), color="red") +
   geom_line(aes(y=y), color="blue") +
-  geom_vline(xintercept = c(-3, 0, 3)) + 
+  geom_vline(xintercept = c(-3, 0, 3)) +
   geom_hline(yintercept = 0)
 ```
 
-Invece che creare manualmente una serie per ogni normale, è più efficiente usare un pivot:
+Le geometrie `geom_vline()` e `geom_hline()` tracciano linee verticali e orizzontali di riferimento, nelle posizioni indicate da `xintercept` e `yintercept`.
+
+Questo approccio però ha un limite: serve un `geom_line()` per ogni curva, i colori vanno scelti a mano e non c'è una legenda. Invece che creare manualmente una serie per ogni curva, è più efficiente usare un pivot: portiamo la tabella in formato lungo (con `-x` impiliamo tutte le colonne *tranne* `x`) e associamo la colonna con il nome della distribuzione all'estetica `color`:
 
 ```{r}
 data %>%
-  pivot_longer(-x, names_to="normale", values_to="p") %>% 
-  ggplot(aes(x=x)) + 
-  geom_line(aes(y=p, group=normale, color=normale)) + 
-  geom_vline(xintercept = c(-3, 0, 3)) + 
+  pivot_longer(-x, names_to="distribuzione", values_to="p") %>%
+  ggplot(aes(x=x)) +
+  geom_line(aes(y=p, group=distribuzione, color=distribuzione)) +
+  geom_vline(xintercept = c(-3, 0, 3)) +
   geom_hline(yintercept = 0)
 ```
 
+L'estetica `group` dice a `geom_line()` quali punti vanno uniti da una stessa linea (in questo caso sarebbe implicita in `color`, ma è bene conoscerla). Così facendo, aggiungere una nuova curva richiede solo di aggiungere una colonna alla tabella. Si noti come la $t$ di Student con 10 gradi di libertà sia molto simile alla normale standard, ma con code leggermente più "pesanti".
+
 ## Ripartizione (CDF)
+
+La funzione di ripartizione $F(x) = P(X \leq x)$ restituisce la probabilità che la variabile casuale assuma un valore minore o uguale a $x$, cioè l'area sotto la PDF a **sinistra** di $x$. Con l'opzione `lower.tail = FALSE` si ottiene invece l'area a **destra**, $P(X > x) = 1 - F(x)$:
+
+```{r}
+pnorm(1.96)                      # area a sinistra di 1.96
+pnorm(1.96, lower.tail = FALSE)  # area a destra di 1.96
+1 - pnorm(1.96)                  # equivalente
+```
+
+Questo è esattamente il calcolo che serve per ottenere un *p*-value. Ad esempio, per un test $t$ bilaterale con statistica $t_0 = 2.3$ e 10 gradi di libertà:
+
+```{r}
+t0 <- 2.3
+2 * pt(abs(t0), df=10, lower.tail = FALSE)
+```
+
+Graficamente, le due versioni della CDF sono simmetriche:
 
 ```{r}
 tibble(
   x = seq(-3, 3, length.out=200),
   pl = pt(x, 10, lower.tail = TRUE),
   pu = pt(x, 10, lower.tail = FALSE)
-) %>% 
+) %>%
   ggplot(aes(x=x)) +
   geom_line(aes(y=pl), color="red") +
   geom_line(aes(y=pu), color="blue")
 ```
 
+Si noti che qui la tabella viene creata con `tibble()` e passata direttamente a `ggplot()` con la pipe, senza salvarla in una variabile: è una pratica comune quando i dati servono solo per il grafico.
 
 
 ## Quantile
+
+La funzione quantile è l'**inversa** della CDF: data una probabilità $p$, restituisce il valore $x_p$ tale che $P(X \leq x_p) = p$. È la funzione che si usa per calcolare i **valori critici** di un test o gli estremi di un intervallo di confidenza:
+
+```{r}
+qnorm(0.975)                  # quantile della normale standard al 97.5%
+qnorm(0.025, lower.tail=FALSE) # stesso valore: area 0.025 a destra
+qt(0.975, df=10)              # valore critico t per alpha=0.05, bilaterale
+pnorm(qnorm(0.975))           # q e p sono una l'inversa dell'altra
+```
+
+Il grafico della funzione quantile ha quindi in ascissa una probabilità (tra 0 e 1) e in ordinata un valore della variabile:
 
 ```{r}
 tibble(
   x = seq(0, 1, length.out=200),
   pl = qt(x, 10, lower.tail = TRUE),
   pu = qt(x, 10, lower.tail = FALSE)
-) %>% 
+) %>%
   ggplot(aes(x=x)) +
   geom_line(aes(y=pl), color="red") +
-  geom_line(aes(y=pu), color="blue") + 
+  geom_line(aes(y=pu), color="blue") +
   geom_function(fun = qnorm, color="darkgreen", args=list(mean=0.1))
 ```
 
+Si osservi che per $p \to 0$ e $p \to 1$ il quantile tende a $\mp\infty$, e che la curva verde (quantile di una normale con media 0.1) è stata aggiunta con `geom_function()`, senza calcolarla nella tabella.
 
-Se si vuole solo plottare una funzione, si può anche fare a meno di costruirsi una tabella dati e usare l'apposita geometria `geom_function()`, che vuole il *nome* della funzione da plottare (senza argomenti né parentesi!) e opzionalmente l'intervallo dell'ascissa:  
+
+Se si vuole solo plottare una funzione, si può anche fare a meno di costruirsi una tabella dati e usare l'apposita geometria `geom_function()`, che vuole il *nome* della funzione da plottare (senza argomenti né parentesi!) e opzionalmente l'intervallo dell'ascissa:
 
 ```{r}
 ggplot() + geom_function(fun=dnorm, xlim=c(-3, 3))
 ```
+
+Gli eventuali parametri della funzione (diversi dalla $x$) vanno passati come lista nell'argomento `args`. Ad esempio, per confrontare la $t$ di Student con diversi gradi di libertà con la normale standard:
+
+```{r}
+ggplot() +
+  geom_function(fun=dnorm, xlim=c(-4, 4), color="black") +
+  geom_function(fun=dt, xlim=c(-4, 4), args=list(df=2), color="red") +
+  geom_function(fun=dt, xlim=c(-4, 4), args=list(df=5), color="blue") +
+  labs(x="x", y="densità")
+```
+
+All'aumentare dei gradi di libertà la $t$ di Student tende alla normale standard.
 
 
 ::: {.callout-tip}
@@ -753,8 +937,6 @@ t_test <- function(x, y, var.equal=TRUE, alpha=0.05) {
 ```
 
 :::
-
-
 
 
 # Accesso a file
