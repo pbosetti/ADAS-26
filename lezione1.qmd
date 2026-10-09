@@ -10,6 +10,14 @@ format:
   pdf: 
     toc: true
     number-sections: true
+    papersize: "A4"
+    # Quanto segue fa in modo che i blocchi di codice lunghi vengano spezzati
+    # su più linee (trucco LaTeX)
+    include-in-header:
+      text: |
+        \usepackage{fvextra}
+        \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+        \RecustomVerbatimEnvironment{verbatim}{Verbatim}{breaklines,breakanywhere}
 ---
 
 ```{r setup}
@@ -17,6 +25,9 @@ format:
 # La linea qui sopra nasconde questo blocco di codice nel documento finale
 library(tidyverse)
 source("my_functions.R")
+# Imposto la larghezza max in caratteri dell'output di testo dei blocchi di 
+# codice a 70 caratteri:
+options(width = 70) 
 ```
 
 # Documenti Quarto (estensione `.qmd`)
@@ -26,7 +37,7 @@ Un documento Quarto è un file di testo che combina **testo formattato** (in Mar
 
 ## Intestazione in YAML
 
-Ogni documento inizia con un'intestazione delimitata da due linee `---`, scritta in linguaggio YAML (un formato di testo del tipo `chiave: valore`). L'intestazione contiene i **metadati** del documento e le opzioni di rendering:
+Ogni documento inizia con un'intestazione delimitata da tre linee `---`, scritta in linguaggio YAML (un formato di testo del tipo `chiave: valore`). L'intestazione contiene i **metadati** del documento e le opzioni di rendering:
 
 ```yaml
 ---
