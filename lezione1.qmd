@@ -952,29 +952,373 @@ t_test <- function(x, y, var.equal=TRUE, alpha=0.05) {
 
 # Accesso a file
 
+R ha una serie di funzioni con nomi come `read.*()` e `write.*()` per leggere e scrivere file di dati, operando su tabelle `data.frame`. Tidyverse (tramite il pacchetto `readr`), mette a disposizione analoghe funzioni *migliorate* con gli stessi nomi ma con undercore al posto del punto, ad esempio `read.csv()` è sostituito da `read_csv()`. Queste funzioni operano su `tibble`.
+
+Per alcuni casi specifici le funzioni base sono ancora utili, per cui si suggeriisce di consultarne l'help in linea.
+
+Vediamo di seguito come utilizzare le principali funzioni.
+
+## Comuni formati di salvataggio dati
+
+È buona norma salvare dati in formati **aperti** e il più possibile **leggeri**, in modo da consentirne sempre l'utilizzo anche futuro a qualsiasi sistema software.
+
+Il modo più *open* per il salvataggio di tabelle dati è un file di testo semplice. Resta da accordarsi su come organizzare i valori.
+
+Le scelte più comuni sono:
+
+* campi a larghezza fissa, *Fixed Width Fields* (`.fwf` o `.txt`): ogni riga è un record, ogni colonna ha la stessa larghezza per tutti i record
+* campi delimitati (`.dat`, `.txt` e altri): ogni riga è un record, le colonne sono separate da un carattere delimitatore (ad esempio uno spazio o una tabulazione)
+* campi separati da virgola (`.csv`): ogni riga è un record, le colonne sono separate da una virgola (in lingue anglosassoni, dove il punto separa i decimali) o da un punto e virgola ( in lingue latine, dove la virgola separa i decimali)
+
+Anzitutto creiamo alcuni file di esempio su cui poter poi operare.
+
+**.fwf**: vantaggio: facile da leggere. Svantaggio: bisogna conoscere la larghezza massima di tutti i record.
+
+```{fwf filename="dati.fwf"}
+123456789012345678901234567890
+001000110012.0linea 1
+001100090013.0linea 2
+00120007010.12linea 3
+001301110001.0linea 4
+```
+
+**.dat**: vantaggio: facile da scrivere, supporta anche separatori multipli (quindi si legge allo stesso modo anche un .fwf). Svantaggio: come rapppresento una cella vuota?
+
+```{dat filename="dati.dat"}
+A B C D
+10 11 12.0   "linea 1"
+11 9 13.0 "linea 2"
+12 7 10.12 "linea 3"
+13  111 1.0 "linea 4"
+```
+
+**.csv**: vantaggio: formato standard, molto supportato, importazione e esportazione automatica. Svantaggi: meno comodo da leggere; le lingue romanze usano la virgola come separatore decimale, quindi ci sono due standard
+
+```{csv filename="dati.csv"}
+A,B,C,D
+10,11,12.0,"linea 1"
+11,9,13.0,"linea 2"
+12,7,10.12,"linea 3"
+13,111,1.0,"linea 4"
+```
+
+```{csv filename="dati_it.csv"}
+A;B;C;D
+10;11;12,0;"linea 1"
+11;9;13,0;"linea 2"
+12;7;10,12;"linea 3"
+13;111;1,0;"linea 4"
+```
+
+
 ## Caricamento dati
+
+Supponiamo che i file di esempio siano stati salvati nella cartella `dati` del progetto. Tutti i percorsi sono **relativi** alla cartella che contiene il documento `.qmd`.
+
+### FWF
+
+Per i file a larghezza fissa bisogna fornire a `read.fwf()` il vettore delle larghezze delle colonne (in caratteri). La prima riga del file (il "righello" con le posizioni dei caratteri) viene saltata con `skip=1`, e i nomi delle colonne si possono assegnare con `col.names`:
+
+```{r}
+read.fwf("dati/dati.fwf", c(4,4,6,10), skip=1, col.names=c("A", "B", "C", "D"))
+```
+
+### Testo delimitato
+
+La versione più semplice è `read.delim()`. Con `sep=""` qualsiasi sequenza di spazi o tabulazioni viene considerata un separatore; con `comment.char="#"` le righe (o le parti di riga) che iniziano con `#` vengono ignorate:
+
+```{r}
+read.delim("dati/dati.dat", sep="", comment.char = "#")
+```
+
+Invece `read.table()` ha più opzioni ed è più personalizzabile; ad esempio, `header=TRUE` indica che la prima riga contiene i nomi delle colonne e `dec="."` specifica il separatore decimale:
+
+```{r}
+read.table("dati/dati.dat", header=TRUE, sep="", dec = ".")
+```
+
+
+### CSV
+
+Per i file CSV in formato anglosassone (separatore `,` e punto decimale) si usa `read.csv()`:
+
+```{r}
+read.csv("dati/dati.csv")
+```
+
+Per il formato "latino" (separatore `;` e virgola decimale) si usa invece `read.csv2()`:
+
+```{r}
+read.csv2("dati/dati_it.csv")
+```
+
+Le corrispondenti funzioni di `readr` sono `read_csv()` e `read_csv2()`: restituiscono una `tibble`, sono più veloci e riportano il tipo assegnato a ciascuna colonna:
+
+```{r}
+read_csv("dati/dati.csv")
+read_csv2("dati/dati_it.csv")
+```
 
 
 ## Salvataggio dati
 
+Per salvare i dati si usano le funzioni opposte: `read.*()` -> `write.*()`, che hanno in genere gli stessi argomenti, più un primo argomento che è la tabella da salvare. L'opzione `row.names=F` evita di salvare i nomi (numeri) delle righe come prima colonna:
 
+```{r}
+tibble(
+  A = 1:10,
+  B = A^2,
+  C = LETTERS[A],
+  D = rnorm(length(A))
+) %>% write.csv("dati/dati_out.csv", row.names=F)
+```
+
+Verifichiamo il contenuto del file leggendone le prime tre righe come semplice testo:
+
+```{r}
+readLines("dati/dati_out.csv", n=3) %>% cat(sep="\n")
+```
+
+Anche in questo caso esistono le versioni `readr`, come `write_csv()` e `write_csv2()`, che non salvano mai i nomi delle righe.
 
 
 # Gestione tabelle
 
+All'interno di `tidyverse`, le librerie `dplyr` e `tidyr` forniscono funzioni per la manipolazione di tabelle: operazioni come selezione, filtraggio, modifica e riordino (`dplyr`) e come la riorganizzazione in formato *lungo* o *largo* (`tidyr`).
+
+Tutte queste funzioni prendono come primo argomento una tabella e restituiscono una nuova tabella: per questo possono essere concatenate con l'operatore *pipe* `%>%` (o con la sua versione nativa `|>`), che passa il risultato dell'operazione a sinistra come primo argomento della funzione a destra. La tabella originale **non viene modificata**: per conservare il risultato bisogna assegnarlo a una variabile.
+
+La libreria `dplyr` fornisce anche alcune tabelle di esempio, delle quali utilizzeremo `starwars`, un database dei personaggi della saga *Guerre Stellari*.
+
+## Sezionamento
+
+Le funzioni `slice_*()` estraggono un sottoinsieme di righe in base alla loro posizione. Le prime `n` righe:
+
+```{r}
+starwars %>% slice_head(n=6)
+```
+
+Le ultime `n` righe:
+
+```{r}
+starwars %>% slice_tail(n=3)
+```
+
+Un campione casuale di righe, indicato come numero (`n`) o come frazione del totale (`prop`):
+
+```{r}
+starwars %>% slice_sample(prop=0.1)
+```
+
+Esistono anche `slice(righe)`, che estrae le righe con gli indici indicati, e `slice_max()`/`slice_min()`, che estraggono le righe con i valori più grandi/piccoli di una colonna.
+
 ## Filtraggio
+
+La funzione `filter()` mantiene solo le righe che soddisfano una condizione logica. Si noti che all'interno delle funzioni `dplyr` i nomi delle colonne si usano direttamente, senza `$`:
+
+```{r}
+starwars %>%
+  filter(height>200)
+```
+
+Le condizioni si possono combinare con `&` (AND) e `|` (OR). Più condizioni separate da virgola sono equivalenti a un AND:
+
+```{r}
+starwars %>%
+  filter(height>200 & sex=="male")
+```
 
 
 ## Riordino
 
+La funzione `arrange()` riordina le righe secondo i valori di una o più colonne, in ordine crescente; per l'ordine decrescente si usa `desc()`. I valori `NA` vengono sempre messi in fondo:
+
+```{r}
+starwars %>%
+  arrange(desc(mass))
+```
+
+Oppure anche, usando la pipe anche all'interno della funzione:
+
+```{r}
+starwars %>%
+  arrange(mass %>% desc)
+```
+
 
 ## Selezione
 
+La funzione `select()` sceglie le colonne da mantenere, per nome. La notazione `name:mass` indica tutte le colonne da `name` a `mass` comprese; un nome preceduto da `-` indica una colonna da escludere:
 
-## Mdifica
+```{r}
+starwars %>%
+  select(name:mass, sex, gender) %>%
+  arrange(name)
+```
+
+
+## Modifica
+
+La funzione `mutate()` crea nuove colonne o modifica quelle esistenti. Le colonne create possono essere usate subito nelle espressioni successive della stessa chiamata. Inoltre, `select()` permette anche di rinominare le colonne con la sintassi `nuovo_nome=vecchio_nome`:
+
+```{r}
+starwars %>%
+  select(nome=name, statura=height, peso=mass) %>%
+  mutate(statura=statura/100, bmi=peso/statura^2, sovrappeso=bmi>30) %>%
+  arrange(bmi %>% desc)
+```
+
+Supponiamo di voler classificare meglio il BMI: ci definiamo una funzione di appoggio:
+
+```{r}
+bmi_risk <- function(bmi) {
+  if (is.na(bmi)) NA
+  else if (bmi < 18.5) "sottopeso"
+  else if(bmi < 25) "normopeso"
+  else if(bmi < 30) "sovrappeso"
+  else if(bmi < 40) "obesità"
+  else "obesità grave"
+}
+```
+
+Se proviamo ad applicare `bmi_risk` direttamente in `mutate` abbiamo un errore, perché la funzione **non è vettorializzata**: `if` accetta solo una condizione scalare (un singolo `TRUE` o `FALSE`), mentre `mutate` passa alla funzione l'intera colonna come vettore.
+
+Abbiamo due possibilità:
+
+* applicare `bmi_risk` una riga alla volta (su scalari)
+* usare una mappa
+
+```{r}
+sw <- starwars %>%
+  select(nome=name, statura=height, peso=mass) %>%
+  mutate(statura=statura/100, bmi=peso/statura^2)
+
+sw %>%
+  rowwise() %>%
+  mutate(rischio=bmi_risk(bmi)) %>%
+  select(nome, bmi, rischio, statura, peso) %>%
+  arrange(bmi %>% desc)
+```
+
+
+::: {.callout-important}
+### Pro e contro di `rowwise()`
+`rowwise()` raggruppa una tabella per righe, cioè consente di applicare trasformazioni un elemento alla volta. Ciò consente di utilizzare funzioni non vettorializzate, ma è più lento. Soprattutto quando le tabelle sono molto grandi (centinaia di migliaia di righe), la differenza tra una funzione vettorializzata e una funzione scalare applicata per righe può essere sensibile. Inoltre, la tabella risultante resta raggruppata per righe finché non si chiama `ungroup()`.
+:::
+
+
+Invece che `rowwise()` possiamo usare una funzione `map` (dalla libreria `purrr`) per applicare la trasformazione un elemento alla volta (*mappa* in senso matematico di trasformazione elemento per elemento). La variante `map_chr()` garantisce che il risultato sia un vettore di stringhe (esistono anche `map_dbl()`, `map_int()`, `map_lgl()`, mentre `map()` restituisce una lista):
+
+```{r}
+sw %>%
+  mutate(rischio=map_chr(bmi, bmi_risk)) %>%
+  select(nome, bmi, rischio, statura, peso) %>%
+  arrange(bmi %>% desc)
+```
+
+Ma a questo punto possiamo integrare `map_chr()` nella definizione della funzione. La sintassi `\(x) {...}` definisce una *funzione anonima* (o *lambda*) con argomento `x`, equivalente a `function(x) {...}`:
+
+```{r}
+# versione vettorializzata
+bmi_risk_v <- function(bmi) {
+  map_chr(bmi, \(x) {
+    if (is.na(x)) NA
+    else if (x < 18.5) "sottopeso"
+    else if(x < 25) "normopeso"
+    else if(x < 30) "sovrappeso"
+    else if(x < 40) "obesità"
+    else "obesità grave"
+  })
+}
+
+bmi_risk_v(c(30, 20, 34)) # funziona!
+
+sw %>%
+  mutate(rischio=bmi_risk_v(bmi)) %>%
+  select(nome, bmi, rischio)
+```
+
+::: {.callout-tip}
+In casi come questo, in cui si vuole suddividere un valore numerico in intervalli, si può anche usare la funzione base `cut()`, che è già vettorializzata:
+
+```{r}
+#| eval: false
+cut(bmi,
+    breaks=c(0, 18.5, 25, 30, 40, Inf),
+    labels=c("sottopeso", "normopeso", "sovrappeso", "obesità", "obesità grave"),
+    right=FALSE)
+```
+:::
 
 
 ## Raggruppamento
 
+La funzione `group_by()` consente di *preparare* una tabella per operazioni da condurre un gruppo alla volta. Di per sé non cambia i dati, ma aggiunge l'informazione sui gruppi (visibile nell'intestazione della tabella stampata, `Groups:`):
+
+```{r}
+starwars %>%
+  group_by(gender) %>%
+  arrange(name, .by_group=TRUE)
+```
+
+Un tipo di operazione possibile su dati raggruppati è il **sommario**: `summarise()` riduce ogni gruppo a una sola riga, calcolando le statistiche indicate. La funzione `n()` conta il numero di righe di ciascun gruppo:
+
+```{r}
+sw %>%
+  mutate(rischio=bmi_risk_v(bmi)) %>%
+  group_by(rischio) %>%
+  summarise(
+    count=n(),
+    max=max(bmi),
+    min=min(bmi)
+  ) %>%
+  arrange(max)
+```
+
+Si noti che i personaggi senza statura o peso formano un gruppo a parte, con `rischio` pari a `NA`.
+
+Un altro motivo per operare su tabelle raggruppate è la suddivisione in una lista di tabelle, una per ciascun gruppo:
+
+```{r}
+sw %>%
+  mutate(rischio=bmi_risk_v(bmi)) %>%
+  group_by(rischio) %>%
+  group_split()
+```
+
+
 
 ## Trasposizione
+
+Una tabella si dice in formato **largo** quando le osservazioni dello stesso tipo sono distribuite su più colonne, e in formato **lungo** quando ogni riga contiene una sola osservazione. Il formato lungo (detto anche *tidy*) è quello più adatto all'analisi e ai grafici con `ggplot2`. La libreria `tidyr` fornisce `pivot_longer()` per passare da largo a lungo e `pivot_wider()` per l'operazione inversa.
+
+La tabella di esempio `billboard` contiene le posizioni in classifica di alcune canzoni nell'anno 2000, con una colonna per ogni settimana (`wk1`, `wk2`, ...). La convertiamo in formato lungo:
+
+```{r}
+billboard %>%
+  pivot_longer(
+    cols = starts_with("wk"),  # colonne da raccogliere
+    names_to = "week",         # nome della nuova colonna con i nomi delle colonne originali
+    names_prefix = "wk",       # prefisso da eliminare dai nomi
+    values_to = "rank",        # nome della nuova colonna con i valori
+    values_drop_na = TRUE      # elimina le righe con valore NA
+  )
+```
+
+La tabella `relig_income` riporta il numero di persone per religione e fascia di reddito, con una colonna per ogni fascia. L'espressione `!religion` indica tutte le colonne tranne `religion`:
+
+```{r}
+relig_income %>% 
+  pivot_longer(!religion, names_to = "income", values_to = "count")
+```
+
+L'operazione inversa, da lungo a largo, si ottiene con `pivot_wider()`, indicando da quale colonna prendere i nomi delle nuove colonne e da quale i valori:
+
+```{r}
+relig_income %>% 
+  pivot_longer(!religion, names_to = "income", values_to = "count") %>% 
+  pivot_wider(names_from = income, values_from = count)
+```
+
+
+
