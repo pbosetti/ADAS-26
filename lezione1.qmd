@@ -1292,6 +1292,14 @@ sw %>%
 
 Una tabella si dice in formato **largo** quando le osservazioni dello stesso tipo sono distribuite su più colonne, e in formato **lungo** quando ogni riga contiene una sola osservazione. Il formato lungo (detto anche *tidy*) è quello più adatto all'analisi e ai grafici con `ggplot2`. La libreria `tidyr` fornisce `pivot_longer()` per passare da largo a lungo e `pivot_wider()` per l'operazione inversa.
 
+
+::: {.callout-tip}
+Il formato *largo* è più compatto, evita valori ripetuti, ed è spesso più semplice da consultare per l'occhio umano. Viceversa, il formato *lungo* è più prolisso (ci sono valori duplicati) ma è molto più adatto alla manipolazione automatica (grafici e analisi). 
+
+Dato che entrambi i formati hanno dei vantaggi, è molto utile avere uno strumento che consente di passare rapidamente dall'uno all'altro.
+:::
+
+
 La tabella di esempio `billboard` contiene le posizioni in classifica di alcune canzoni nell'anno 2000, con una colonna per ogni settimana (`wk1`, `wk2`, ...). La convertiamo in formato lungo:
 
 ```{r}
