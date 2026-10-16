@@ -24,6 +24,7 @@ format:
 #| include: FALSE
 # La linea qui sopra nasconde questo blocco di codice nel documento finale
 library(tidyverse)
+library(adas.utils)
 source("my_functions.R")
 # Imposto la larghezza max in caratteri dell'output di testo dei blocchi di 
 # codice a 70 caratteri:
@@ -1330,3 +1331,421 @@ relig_income %>%
 
 
 
+# Test inferenziali
+
+Approfondiamo ora alcuni test statistici, sfruttando le nuove funzionalità apprese con `tidyverse`.
+
+## Test di Student a due campioni
+
+Generiamo due campioni casuali normali, di dimensioni, medie e deviazioni standard diverse. La funzione `set.seed()` fissa il *seme* del generatore di numeri casuali, in modo che i risultati siano riproducibili.
+
+Il test di Student nella forma classica assume che i due campioni abbiano la **stessa varianza**. Per questo eseguiamo prima un test di Fisher sull'uguaglianza delle varianze (`var.test()`), e poi passiamo il suo esito all'argomento `var.equal` di `t.test()`: se il p-value del test di Fisher è maggiore di 0.05 non possiamo rifiutare l'ipotesi di varianze uguali, altrimenti `t.test()` applica la correzione di Welch.
+
+```{r}
+set.seed(321)
+
+s1 <- rnorm(10, 10.1, 0.2)
+s2 <- rnorm(14, 10.2, 0.1)
+
+vt <- var.test(s1, s2)
+
+t.test(s1, s2, var.equal=vt$p.value>0.05)
+```
+
+Le funzioni `var.test()` e `t.test()` accettano anche una **formula** e una tabella in formato *tidy* (lungo), cioè con una colonna per i valori e una per il campione di appartenenza. Per costruire questa tabella, portiamo prima i due vettori alla stessa lunghezza (i valori mancanti diventano `NA`), creiamo una tabella larga e la trasformiamo in lunga, eliminando infine le righe con `NA`:
+
+```{r}
+length(s1) <- max(length(s1), length(s2))
+length(s2) <- max(length(s1), length(s2))
+
+df <- tibble(
+  s1 = s1,
+  s2 = s2
+) %>%
+  pivot_longer(s1:s2, names_to="campione", values_to="valore") %>%
+  na.omit()
+df
+
+# la formula valore~campione si legge "valore in funzione di campione"
+var.test(valore~campione, data=df)
+t.test(valore~campione, data=df, var.equal=TRUE) # varianze uguali, come dal test precedente
+```
+
+Il formato tidy è anche quello più comodo per rappresentare graficamente i due campioni. L'opzione `varwidth=TRUE` rende la larghezza di ogni box proporzionale alla radice quadrata della numerosità del campione:
+
+```{r}
+df %>%
+  ggplot(aes(x=campione, y=valore)) +
+  geom_boxplot(aes(fill=campione), varwidth = TRUE) +
+  geom_point(color="red")
+```
+
+## Outlier (anomalie)
+
+Un **outlier** è un valore anomalo, cioè molto distante dagli altri valori del campione, e che potrebbe essere dovuto a un errore di misura o di trascrizione. Il **criterio di Chauvenet** stabilisce se il valore più distante dalla media può essere scartato:
+
+1. si calcola la massima distanza dalla media in unità di deviazione standard, $s_0 = \max_i |x_i - \bar x|/s$;
+2. si calcola la probabilità $P_s$ di osservare un valore oltre $s_0$ in una distribuzione normale standard;
+3. si calcola la frequenza attesa $f = N P_s$ di valori così estremi in un campione di $N$ elementi;
+4. se $f < 0.5$ il valore è considerato un outlier e può essere scartato.
+
+Implementiamo il criterio in una funzione. La funzione stampa un riassunto e restituisce i risultati come lista *invisibile*, cioè non stampata se non viene assegnata a una variabile:
+
+```{r}
+chauvenet <- function(x, threshold=0.5, na_omit=TRUE) {
+  if(na_omit) x <- na.omit(x)
+  abs.diff <- abs(x-mean(x))/sd(x)
+  i0 <- which.max(abs.diff)
+  s0 <- abs.diff[i0]
+  # probabilità di un valore oltre s0 (lower.tail=FALSE: coda superiore)
+  Ps <- pnorm(s0, lower.tail=FALSE)
+  freq <- Ps * length(x)
+
+  result <- list(
+    s0 = s0,
+    Ps = Ps,
+    index = i0,
+    value = x[i0],
+    freq = freq,
+    reject = freq < threshold
+  )
+  cat(paste("Max deviation:", s0, "at index:", i0, "\n"))
+  cat(paste("Frequency:", freq, "\n"))
+  cat(paste("Decision:", ifelse(result$reject, "REJECT", "keep"), "\n"))
+  invisible(result)
+}
+
+chauvenet(s1)
+```
+
+::: {.callout-note}
+Il criterio di Chauvenet va applicato **una sola volta** a un campione: non è corretto ripeterlo iterativamente dopo aver scartato un valore, perché si finirebbe per eliminare valori legittimi.
+:::
+
+
+## Test di Grubbs
+
+Il **test di Grubbs** è un vero e proprio test d'ipotesi per la ricerca di un singolo outlier, ed è implementato nella libreria `outliers` (va installata con `install.packages("outliers")`). L'ipotesi nulla è che non ci siano outlier nel campione; l'ipotesi alternativa è che il valore più distante dalla media sia un outlier. La notazione `outliers::grubbs.test()` consente di usare una funzione di una libreria senza caricarla con `library()`:
+
+```{r}
+outliers::grubbs.test(s1)
+```
+
+Se il p-value è piccolo (minore di 0.05) rifiutiamo l'ipotesi nulla e possiamo eliminare il valore anomalo, ad esempio sostituendolo con `NA`:
+
+```{r}
+s1[which.max(s1)] <- NA
+s1
+```
+
+## Test di Student accoppiato
+
+Il test **accoppiato** (*paired*) si usa quando le osservazioni dei due campioni sono collegate a coppie: ad esempio, due misure diverse fatte sullo stesso provino. In questo caso il test opera sulle **differenze** tra le coppie, eliminando così la variabilità tra un provino e l'altro.
+
+Il file `hardness2.dat` contiene le misure di durezza ottenute con due diverse punte (`Tip1` e `Tip2`) su 10 provini (`Specimen`). Le funzioni `read.*()` possono caricare un file anche da un URL:
+
+```{r}
+read.table("https://pbosetti.github.io/teaching_site/data/hardness2.dat", header=TRUE) %>% slice_head(n=5) %>% print()
+```
+
+Più comodamente, la funzione `examples_url()` di `adas.utils` costruisce l'URL completo a partire dal solo nome del file. Confrontiamo il test non accoppiato con quello accoppiato:
+
+```{r}
+df <- read.table(examples_url("hardness2.dat"), header=TRUE)
+
+# test NON accoppiato: ignora il legame tra le coppie
+t.test(df$Tip1, df$Tip2, paired=FALSE)
+# test accoppiato: equivale a un test a un campione sulle differenze
+t.test(df$Tip1, df$Tip2, paired=TRUE)
+```
+
+Il test non accoppiato non rileva una differenza significativa, perché la grande variabilità della durezza tra un provino e l'altro "nasconde" la differenza tra le punte. Il test accoppiato, invece, lavorando sulle differenze, evidenzia chiaramente che le due punte danno risultati diversi.
+
+
+::: {.callout-note}
+### Esercizio
+
+Ripetere l'analisi con i dati in formato tidy e usando la formula nella funzione `t.test()`.
+
+Confrontare i due risultati (`paired=T` e `paired=F`) con due boxplot (a due e un campione rispettivamente).
+:::
+
+
+## Correlazione e covarianza
+
+Generiamo tre campioni: `s1` e `s2` sono indipendenti tra loro, mentre `s3` dipende linearmente da `s1` (più un disturbo casuale):
+
+```{r}
+set.seed(0)
+N <- 50
+df <- tibble(
+  s1 = rnorm(N, 3, 1),
+  s2 = rnorm(N, 5, 1),
+  s3 = 2 + 1.5*s1 + rnorm(N, 0, 0.5)
+)
+```
+
+La **covarianza** misura quanto due variabili variano insieme, ma il suo valore dipende dalle unità di misura e dalla scala delle variabili, quindi è difficile da interpretare:
+
+```{r}
+cov(df$s1, df$s2)
+cov(df$s1, df$s3)
+```
+
+La **correlazione** (di Pearson) è la covarianza normalizzata con le deviazioni standard, $r = \mathrm{cov}(x,y)/(s_x s_y)$, e assume sempre valori tra -1 e 1: valori vicini a $\pm 1$ indicano una forte dipendenza lineare, valori vicini a 0 l'assenza di dipendenza lineare:
+
+```{r}
+cor(df$s1, df$s2)
+cor(df$s1, df$s3)
+```
+
+Per stabilire se una correlazione è **significativa** si usa `cor.test()`, la cui ipotesi nulla è che la correlazione sia nulla:
+
+```{r}
+cor.test(df$s1, df$s3)
+cor.test(df$s1, df$s2)
+```
+
+Anche visivamente la differenza è evidente:
+
+```{r}
+df %>%
+  pivot_longer(s2:s3, names_to="campione", values_to="valore") %>%
+  ggplot(aes(x=s1, y=valore, color=campione)) +
+  geom_point()
+```
+
+## Verifica di normalità
+
+Molti test (incluso il test di Student) assumono che i dati siano distribuiti normalmente. Vediamo alcuni strumenti per verificare questa ipotesi, confrontando un campione normale (`sn`) con uno uniforme (`su`), con media e intervallo di valori simili:
+
+```{r}
+set.seed(10)
+N <- 200
+
+df <- tibble(
+  i = 1:N,
+  sn = rnorm(N, 10, 2),
+  su = runif(N, 8, 12)
+) %>%
+  pivot_longer(-i, names_to="campione", values_to="valore")
+
+df %>%
+  ggplot(aes(x=i, y=valore, color=campione)) +
+  geom_point()
+```
+
+### Diagramma Q-Q
+
+Il **diagramma quantile-quantile** riporta i quantili del campione in funzione dei quantili teorici di una distribuzione normale standard. Se il campione è normale, i punti si dispongono lungo una retta; deviazioni sistematiche dalla retta (tipicamente alle estremità) indicano una distribuzione diversa:
+
+```{r}
+df %>%
+  ggplot(aes(sample=valore, color=campione)) +
+  geom_qq() +
+  geom_qq_line()
+```
+
+Il campione uniforme mostra il tipico andamento a "S", dovuto alle code molto più corte di quelle di una normale.
+
+::: {.callout-note}
+### Esercizio
+Provare a cambiare la dimensione dei campioni e commentare il risultato.
+:::
+
+
+### Istogramma
+
+Calcoliamo prima media e deviazione standard di ciascun campione, per poter sovrapporre all'istogramma la corrispondente densità normale. Il numero di classi (`bins`) è calcolato con la regola di Sturges, tramite la funzione `nclass.Sturges()`:
+
+```{r}
+stats <- df %>%
+  group_by(campione) %>%
+  summarise(
+    m = mean(valore),
+    s = sd(valore)
+  )
+
+df %>%
+  filter(campione=="sn") %>%
+  ggplot() +
+  geom_histogram(
+    aes(x=valore),
+    bins=nclass.Sturges,
+    fill=gray(0.5), color="black"
+  ) +
+  geom_function(fun=dnorm, args=list(mean=stats$m[1], sd=stats$s[1]), color="red")
+```
+
+Nota che le ordinate non sono confrontabili: l'istogramma riporta i **conteggi**, mentre la curva rossa è una **densità di probabilità** (con area unitaria). Per renderle confrontabili bisogna rappresentare l'istogramma come densità, con `y=after_stat(density)`:
+
+```{r}
+df %>%
+  filter(campione=="sn") %>%
+  ggplot() +
+  geom_histogram(
+    aes(x=valore, y=after_stat(density)),
+    bins=nclass.Sturges,
+    fill=gray(0.5), color="black"
+  ) +
+  geom_function(fun=dnorm, args=list(mean=stats$m[1], sd=stats$s[1]), color="red")
+```
+
+
+::: {.callout-tip}
+
+Un'altra possibilità è **scalare** la curva di densità normale in funzione del numero di osservazioni `N`, in modo che l'integrale della curva sia pari al numero di osservazioni. È sufficiente usare la gemetria `geom_function(fun=\(x) N*dnorm(x, mean=stats$m[1], sd=stats$s[1]))`, dove `\(x)` definisce una funzione anonima di `x` che rappresenta la normale scalata di un fattore `N`.
+:::
+
+
+
+::: {.callout-note}
+### Esercizio 1
+Ripetere l'analisi per il campione uniforme.
+
+### Esercizio 2
+Usando l'estetica `group` e senza applicare il filtro `campione=="sn"`, rappresentare **entrambi i campioni** nello stesso grafico, con colori diversi e curve di densità sovrapposte. Consultare l'help di `geom_histogram()` per capire come fare.
+:::
+
+
+### Test di Shapiro-Wilk
+
+Il test di Shapiro-Wilk è un test d'ipotesi in cui l'ipotesi nulla è che il campione provenga da una distribuzione normale: un p-value piccolo indica quindi che il campione **non** è normale. Proviamo con un campione uniforme:
+
+```{r}
+shapiro.test(runif(50))
+```
+
+Possiamo applicare il test a entrambi i campioni in una sola volta, raggruppando la tabella. Dato che `summarise()` può restituire solo valori semplici, estraiamo il p-value dal risultato del test con `$p.value`:
+
+```{r}
+df %>%
+  group_by(campione) %>%
+  summarise(p.value = shapiro.test(valore)$p.value)
+```
+
+
+::: {.callout-note}
+### Esercizio
+Come detto a lezione, il test di Shapiro-Wilk è molto potente e può bastare un solo outlier per fornire un p-value critico anche per un campione sensibilmente normale. Provare a generare un campione normale che passi il test e a introdurre un outlier **modificando un valore** del campione, quindi ripetere il test.
+:::
+
+
+
+
+## Analisi della varianza
+
+L'analisi della varianza (ANOVA) generalizza il test di Student al confronto tra le medie di **più di due** campioni. Il file `cotton.dat` riporta la resistenza a trazione (`Strength`) di un filato sintetico in funzione della percentuale in peso di cotone (`Cotton`) nel filato, con 5 ripetizioni per ognuno dei 5 livelli di `Cotton`. La colonna `Run` riporta l'ordine (casuale) di esecuzione delle prove.
+
+```{r}
+df <- examples_url("cotton.dat") %>%
+  read.table(header=TRUE)
+print(slice_sample(df, n=6))
+```
+
+
+::: {.callout-note}
+### La colonna `Run`
+La colonna `Run` indica l'ordine casuale di esecuzione delle prove. 
+
+Come vedremo più avanti è fondamentale eseguire le prove in ordine casuale, per evitare che eventuali effetti dovuti a fattori esterni (ad esempio la temperatura o l'umidità) possano influenzare i risultati.
+
+In questo caso non è importante, ma in esperimenti più complessi può essere utile per verificare se ci sono effetti dovuti all'ordine di esecuzione.
+:::
+
+
+
+Proviamo a rappresentare i dati con un boxplot per ciascun livello di `Cotton`:
+
+```{r}
+df %>%
+  ggplot(aes(x=Cotton, y=Strength)) +
+  geom_boxplot()
+```
+
+Questa volta il grafico non è quello atteso (un unico box per tutti i dati, e un avviso) perché la variabile `Cotton` è di tipo numerico, mentre per raggruppare i dati in un boxplot serve una variabile categorica. La soluzione è convertire `Cotton` in **fattore**, cioè in una variabile categorica i cui valori possibili sono detti *livelli*:
+
+```{r}
+df %>%
+  mutate(Cotton=factor(Cotton)) %>%
+  ggplot(aes(x=Cotton, y=Strength)) +
+  geom_boxplot()
+```
+
+
+
+Per effettuare l'analisi della varianza è necessario prima definire il **modello lineare**.
+
+Abbiamo visto a teoria che il modello dei trattamenti per l'esempio sopra riportato (*ANOVA a una via*) è:
+
+$$
+y_{ij} = \mu + \tau_i + \epsilon_{ij}
+$$
+
+dove $\mu$ è la media generale, $\tau_i$ è l'effetto dell'$i$-esimo trattamento (livello di `Cotton`) ed $\epsilon_{ij}$ è il residuo, che assumiamo normale con media nulla e varianza costante.
+
+In R un modello lineare è rappresentato da una *formula*, che si ottiene dal modello matematico sostituendo i simboli con i nomi delle variabili, eliminando i residui $\epsilon_{ij}$ e il termine $\mu$ (che è implicito) e sostituendo l'uguale con una `~`. In questo caso, la formula diventa `Strength~Cotton`.
+
+La funzione `lm()` (*linear model*) stima i parametri del modello, e la funzione `anova()` costruisce la tabella ANOVA a partire dal modello stimato:
+
+```{r}
+df.lm <- lm(Strength~Cotton, data=df)
+
+anova(df.lm) %>% print()
+```
+
+
+::: {.callout-warning}
+L'ultima analisi ANOVA **è errata**, come si deduce dalla colonna `Df` (gradi di libertà) della tabella: con 5 livelli i gradi di libertà del trattamento dovrebbero essere 4, e invece sono 1. Il modello lineare è corretto, ma la variabile `Cotton` è numerica e non categorica, quindi R la interpreta come una variabile continua (effettuando di fatto una regressione lineare) e non come un fattore. La soluzione è convertire `Cotton` in fattore con `as.factor()` o `factor()`, oppure direttamente nella formula con `Strength~factor(Cotton)`.
+:::
+
+
+```{r}
+df.lm <- lm(Strength~factor(Cotton), data=df)
+anova(df.lm) %>% print()
+```
+
+
+Oppure:
+
+```{r}
+df2 <- df %>% mutate(Cotton=factor(Cotton))
+df2.lm <- lm(Strength~Cotton, data=df2)
+anova(df2.lm) %>% print()
+```
+
+Oppure ancora, senza creare variabili intermedie:
+
+```{r}
+df %>%
+  mutate(Cotton=factor(Cotton)) %>%
+  lm(Strength~Cotton, data=.) %>% # vedi nota qui sotto!
+  anova() %>% 
+  print()
+```
+
+
+
+::: {.callout-tip}
+### Il segnaposto `.` nella pipe
+
+L'operatore `%>%` passa il risultato dell'espressione a sinistra come **primo** argomento della funzione a destra. La funzione `lm()`, però, si aspetta come primo argomento la formula, e la tabella dati come secondo argomento (`data`). In questi casi si usa il **segnaposto** `.`, che indica esplicitamente in quale argomento inserire il valore proveniente dalla pipe: `lm(Strength~Cotton, data=.)`.
+
+Con la pipe nativa `|>` il segnaposto è invece `_`, e va sempre usato con un argomento nominato: `lm(Strength~Cotton, data=_)`.
+:::
+
+
+Il p-value nella tabella ANOVA è molto piccolo, quindi rifiutiamo l'ipotesi nulla che tutti i trattamenti abbiano lo stesso effetto ($\tau_i = 0$ per ogni $i$): la percentuale di cotone influenza la resistenza del filato.
+
+Il risultato dell'ANOVA è però valido solo se le ipotesi sui residui sono verificate. Verifichiamo almeno la normalità dei residui, che si estraggono dal modello con la funzione `residuals()`:
+
+```{r}
+tibble(residui=residuals(df2.lm)) %>%
+  ggplot(aes(sample=residui)) +
+  geom_qq() +
+  geom_qq_line()
+
+shapiro.test(residuals(df2.lm))
+```
+
+Il diagramma Q-Q non mostra deviazioni sistematiche e il p-value del test di Shapiro-Wilk è maggiore di 0.05: non ci sono evidenze contro la normalità dei residui, quindi il risultato dell'ANOVA **è attendibile**.
