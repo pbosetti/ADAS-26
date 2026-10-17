@@ -1749,3 +1749,9 @@ shapiro.test(residuals(df2.lm))
 ```
 
 Il diagramma Q-Q non mostra deviazioni sistematiche e il p-value del test di Shapiro-Wilk è maggiore di 0.05: non ci sono evidenze contro la normalità dei residui, quindi il risultato dell'ANOVA **è attendibile**.
+
+
+
+::: {.callout-tip}
+È possibile impostare Positron per visualizzare le tabelle (inclusa ANOVA) **in formato testo** invece che come griglia navigabile, senza dover usare `print()`. È sufficiente aprire le impostazioni e nella casella di ricerca scrivere: "inline data explorer" e disattivare il flag corrispondente.
+:::
