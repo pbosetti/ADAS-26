@@ -1755,3 +1755,77 @@ Il diagramma Q-Q non mostra deviazioni sistematiche e il p-value del test di Sha
 ::: {.callout-tip}
 È possibile impostare Positron per visualizzare le tabelle (inclusa ANOVA) **in formato testo** invece che come griglia navigabile, senza dover usare `print()`. È sufficiente aprire le impostazioni e nella casella di ricerca scrivere: "inline data explorer" e disattivare il flag corrispondente.
 :::
+
+
+
+## Test di Tukey
+
+Il [Test di Tukey](https://pbosetti.github.io/teaching_site/slides/ADAS/1-statistica.html#/test-di-tukey) consente di confrontare le medie di tutti i trattamenti a coppie, e stabilire quali differiscono significativamente. La funzione `TukeyHSD()` accetta come argomento un oggetto ANOVA (ottenuto con `aov()`, che è simile a `lm()` ma specifico per ANOVA) e restituisce un elenco con i risultati dei confronti a coppie. L'argomento `conf.level` indica il livello di confidenza (1 - $\alpha$) del test:
+
+```{r}
+df.tuk <- aov(Strength~factor(Cotton), data=df) %>% TukeyHSD(conf.level=0.99)
+df.tuk
+```
+
+
+La libreria `adas.utils` fornisce la funzione `ggTukey()` per rappresentare graficamente i risultati del test di Tukey, con le barre di confidenza e l'indicazione dei confronti significativi:
+
+```{r}
+aov(Strength~factor(Cotton), data=df) %>% 
+  TukeyHSD(conf.level=0.95) %>% 
+  ggTukey()
+```
+
+Ancora più ricco è la funzione `ggTukey()` può accettare un data frame come primo argmento e la formula come secondo argomento:
+
+```{r}
+df %>% 
+  ggTukey(Strength~factor(Cotton), conf.level=0.95)
+```
+
+
+::: {.callout-note}
+### Esercizio
+Provare a cambiare il livello di confidenza e osservare come cambiano le barre di confidenza e i confronti significativi.
+
+Dalla tabella di Tukey, prendere nota del p-value di uno dei confronti e impostare il livello di confidenza del test a `1-(p.value)`, osservando a cosa succede all'intervallo della coppia corrispondente.
+:::
+
+
+
+## ANOVA a due vie
+
+
+L'analisi della varianza può essere estesa a due fattori, per verificare se ciascun fattore influenza la variabile di risposta, e se c'è un'interazione tra i due fattori. Il file `battery.dat` contiene le misure di resistenza elettrica (`Response`) di una batteria in funzione della temperatura (`Temperature`) e del materiale elettrolitico usato nella batteria (`Material`) con 4 ripetizioni per ciascuna combinazione dei due fattori.
+
+```{r}
+df <- examples_url("battery.dat") %>% 
+  read.table(header=TRUE) %>% 
+  mutate(
+    Temperature = factor(Temperature),
+    Material = factor (Material)
+  )
+```
+
+Possiamo anzitutto esplorare i dati con un boxplot, per verificare se ci sono differenze tra i livelli dei due fattori:
+
+```{r}
+df %>% 
+  ggplot(aes(x=Temperature, y=Response, color=Material)) + 
+  geom_boxplot()
+```
+
+Il **modello statistico** è:
+
+$$
+y_{ijk} = \mu + \alpha_i + \beta_j + \epsilon_{ijk}
+$$
+
+dove $\mu$ è la media generale, $\alpha_i$ è l'effetto del $i$-esimo livello di `Temperature`, $\beta_j$ è l'effetto del $j$-esimo livello di `Material`, $(\tau\beta)_{ij}$ è l'effetto dell'interazione tra i due fattori ed $\epsilon_{ijk}$ è il residuo, che assumiamo normale con media nulla e varianza costante.
+
+La **formula** corrispondente è quindi `Response~Material + Temperature`, e il modello lineare può essere creato con `lm()` e analizzato con `anova()`:
+
+```{r}
+lm(Response~Material + Temperature, data=df) %>% 
+  anova()
+```
