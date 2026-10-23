@@ -1,0 +1,325 @@
+---
+title: "Lezione 2"
+subtitle: "Regressione"
+author: "Paolo Bosetti"
+lang: IT-it
+format:
+  html:
+    toc: true # ToC = Table of contents
+    number-sections: true
+  pdf:
+    toc: true
+    number-sections: true
+    papersize: "A4"
+    # Quanto segue fa in modo che i blocchi di codice lunghi vengano spezzati
+    # su più linee (trucco LaTeX)
+    include-in-header:
+      text: |
+        \usepackage{fvextra}
+        \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+        \RecustomVerbatimEnvironment{verbatim}{Verbatim}{breaklines,breakanywhere}
+---
+
+```{r setup}
+#| include: FALSE
+# La linea qui sopra nasconde questo blocco di codice nel documento finale
+library(tidyverse)
+library(adas.utils)
+source("my_functions.R")
+# Imposto la larghezza max in caratteri dell'output di testo dei blocchi di
+# codice a 70 caratteri:
+options(width = 70)
+```
+
+
+# Regressione lineare
+
+## Modello lineare univariato
+
+Supponiamo di avere una relazione tra due variabili $x$ e $y$ del tipo:
+
+$$
+y = a + bx + cx^2
+$$
+
+Realizziamo un esperimento che ci consenta di scegliere i valori di $x$ e misurare i corrispondenti valori di $y$.
+
+Cominciamo con il simulare l'esperimento, generando dei dati sintetici. In particolare, generiamo 100 valori di $x$ equispaziati tra -10 e 10, e calcoliamo i corrispondenti valori di $y$ secondo la relazione sopra (`y_nom`, valore *nominale*), aggiungendo un po' di rumore casuale normale con media nulla e deviazione standard 2 (`y`, valore *misurato*).
+
+```{r}
+set.seed(0)
+N <- 100
+a <- 1
+b <- 2
+c <- 0.1
+
+df <- tibble(
+  x = seq(-5, 15, length.out=N),
+  y_nom = a + b*x + c*x^2,
+  y = y_nom + rnorm(N, 0, 2)
+)
+
+# in rosso la relazione nominale, in nero le "misure"
+df %>% ggplot(aes(x=x)) +
+  geom_line(aes(y=y_nom), color="red") +
+  geom_point(aes(y=y))
+```
+
+Il nostro obiettivo è stimare i parametri $a$, $b$ e $c$ a partire dai dati osservati.
+
+Il primo passo è definire un **modello statistico** che corrisponda alla relazione $y=f(x)$ ma includa anche il disturbo casuale:
+
+$$
+y_i = a + b x_i + c x_i^2 + \epsilon_i,~~~\epsilon_i \sim N(0, \sigma^2)
+$$
+
+Si noti che il modello si dice **lineare** perché è lineare nei **parametri** $a$, $b$ e $c$, anche se non è lineare nella variabile $x$.
+
+In R, il primo passo è trasformare il modello in una formula. La regola generica è:
+
+
+::: {.callout-important}
+### Regole per scrivere una formula in R
+
+* L'uguale si rimpiazza con il simbolo `~`.
+* Gli oggetti a sinistra del simbolo `~` rappresentano la **variabile dipendente** (in questo caso $y$).
+* Gli oggetti a destra del simbolo `~` rappresentano le **variabili indipendenti**, o *predittori* (in questo caso $x$, $x^2$, $x^3$, ecc.), separati da `+` ed eliminando i coefficienti (in questo caso $a$, $b$, $c$) che saranno stimati dal modello.
+* L'**intercetta** (il termine $a$) è implicita e non va scritta nella formula. Se si vuole un modello **senza** intercetta, bisogna aggiungere `- 1` alla formula.
+* I residui non vanno scritti nella formula, ma sono impliciti nel modello.
+:::
+
+
+La formula va poi passata come primo argomento alla funzione `lm()` (*linear model*) che calcola i parametri del modello. Il secondo argomento della funzione è il dataset che contiene le variabili:
+
+```{r}
+lm(y ~ x + x^2, data=df)
+```
+
+Osserviamo che la funzione `lm()` ha calcolato solo i coefficienti per l'intercetta e per $x$, ma non per $x^2$. Questo perché all'interno di una formula gli operatori `^`, `*` e `:` **non** hanno il loro significato aritmetico, ma servono a indicare le *interazioni* tra più variabili (come vedremo più avanti con i modelli a più variabili). In particolare, `(x + z)^2` in una formula significa "tutti i termini `x` e `z` e la loro interazione `x:z`", e quindi `x^2` per una singola variabile si riduce semplicemente a `x`.
+
+Per **proteggere** dall'espansione di $x^2$ come formula, dobbiamo racchiudere l'espressione tra parentesi e precederla con la funzione `I()` (identity). Proviamo un modello di grado maggiore del necessario, fino a $x^4$:
+
+```{r}
+df.lm <- lm(y~x + I(x^2) + I(x^3) + I(x^4), data=df)
+coef(df.lm)
+summary(df.lm)
+```
+
+La funzione `coef()` restituisce i parametri stimati, mentre `summary()` riporta per ogni parametro anche l'errore standard e il p-value di un test di Student la cui ipotesi nulla è che il parametro sia **nullo**. I termini `I(x^3)` e `I(x^4)` hanno p-value elevati: non sono significativi e vanno rimossi dal modello, che si riduce quindi al secondo grado. In fondo al sommario troviamo anche il coefficiente di determinazione $R^2$, che indica la frazione della varianza di $y$ spiegata dal modello.
+
+Una forma più breve per scrivere il modello polinomiale è usare la funzione `poly()`, che genera tutti i termini fino al grado indicato:
+
+```{r}
+df.lm <- lm(y~poly(x, 2), data=df)
+coef(df.lm)
+summary(df.lm)
+```
+
+I coefficienti però non corrispondono ai valori nominali $a=1$, $b=2$, $c=0.1$! Questo perché per default `poly()` usa dei polinomi **ortogonali**, e non i polinomi **grezzi** (*raw*) $x, x^2, \dots$:
+
+* i polinomi **grezzi** si ottengono con `poly(x, 2, raw=TRUE)`, che è equivalente a `x + I(x^2)`. I coefficienti stimati corrispondono direttamente ai parametri $a$, $b$, $c$ del modello, ma i termini $x, x^2, x^3, \dots$ sono fortemente **correlati** tra loro: aggiungendo o togliendo un termine cambiano in generale le stime degli altri coefficienti, e per gradi elevati il calcolo diventa numericamente instabile;
+* i polinomi **ortogonali** sono combinazioni lineari di $x, x^2, \dots$ costruite in modo da essere tra loro non correlati sui valori di $x$ osservati. I coefficienti non hanno un'interpretazione fisica diretta, ma sono indipendenti tra loro: aggiungendo un grado al modello, le stime dei coefficienti di grado inferiore **non cambiano**, e il calcolo è numericamente stabile.
+
+Verifichiamolo confrontando i coefficienti dei modelli di grado 2 e 3, nelle due versioni:
+
+```{r}
+# polinomi ortogonali: i primi tre coefficienti restano invariati
+cat("Polinomi ortogonali:")
+lm(y~poly(x, 2), data=df) %>% coef()
+lm(y~poly(x, 3), data=df) %>% coef()
+# polinomi grezzi: i coefficienti cambiano
+cat("\nPolinomi grezzi:")
+lm(y~poly(x, 2, raw=TRUE), data=df) %>% coef()
+lm(y~poly(x, 3, raw=TRUE), data=df) %>% coef()
+```
+
+Con i polinomi grezzi, aggiungendo il termine di terzo grado cambia la stima del coefficiente di $x$. In questo caso particolare intercetta e coefficiente di $x^2$ restano invariati solo perché i valori di $x$ sono simmetrici rispetto allo zero, e quindi i termini di grado pari sono non correlati con quelli di grado dispari; con valori di $x$ qualsiasi (ad esempio tra 0 e 20) cambierebbero tutti i coefficienti.
+
+In ogni caso, i due modelli dello stesso grado sono **equivalenti**: forniscono esattamente le stesse previsioni e gli stessi residui, e differiscono solo per il modo in cui sono espressi i coefficienti. Possiamo verificarlo confrontando i valori previsti dai due modelli di grado 2 usando:
+
+* `fitted()`, che restituisce i valori previsti dal modello per ciascun valore di $x$ osservato;
+* `all.equal()`, che confronta due oggetti e restituisce `TRUE` se sono uguali (entro una tolleranza numerica):
+
+```{r}
+all.equal(
+  fitted(lm(y~poly(x, 2), data=df)),
+  fitted(lm(y~poly(x, 2, raw=TRUE), data=df))
+)
+```
+
+I polinomi ortogonali sono anche più robusti nell'analisi di **significatività** dei parametri, cioè quando si usano i p-value del sommario per decidere quali termini mantenere nel modello. Il motivo è la **correlazione** tra i termini: verifichiamo con `cor()` la matrice di correlazione dei primi quattro termini nelle due versioni:
+
+```{r}
+# polinomi grezzi: x e x^3, così come x^2 e x^4, sono fortemente correlati
+cor(poly(df$x, 4, raw=TRUE)) %>% round(3)
+# polinomi ortogonali: la matrice di correlazione è la matrice identità
+cor(poly(df$x, 4)) %>% round(3)
+```
+
+Quando due predittori sono fortemente correlati (si parla di **multicollinearità**), il modello fatica a distinguere il contributo dell'uno da quello dell'altro: le stime dei relativi coefficienti diventano molto incerte, cioè i loro errori standard crescono, e di conseguenza crescono anche i p-value. Un termine realmente significativo può quindi *sembrare* non significativo solo perché nel modello ci sono altri termini correlati con esso.
+
+Confrontiamo i sommari dei modelli di grado 2 (quello corretto) e di grado 7 (sovradimensionato), nelle due versioni:
+
+```{r}
+# polinomi ortogonali: stime ed errori standard dei primi termini
+# restano praticamente invariati
+cat("Polinomi ortogonali:")
+lm(y~poly(x, 2), data=df) %>% summary()
+lm(y~poly(x, 7), data=df) %>% summary()
+# polinomi grezzi: aggiungendo termini, le stime cambiano e gli errori
+# standard dei primi termini crescono
+cat("\nPolinomi grezzi:")
+lm(y~poly(x, 2, raw=TRUE), data=df) %>% summary()
+lm(y~poly(x, 7, raw=TRUE), data=df) %>% summary()
+```
+
+Osserviamo che:
+
+* con i polinomi **ortogonali**, i termini di primo e secondo grado hanno la stessa stima e praticamente lo stesso errore standard in entrambi i modelli, e restano nettamente significativi; tutti i termini dal terzo grado in su hanno invece p-value elevati. Il sommario del modello di grado 7 indica quindi in modo univoco che il modello corretto è di secondo grado;
+* con i polinomi **grezzi**, nel modello di grado 7 l'errore standard del coefficiente di $x^2$ è circa 8 volte più grande che nel modello di grado 2, e il suo p-value passa da un valore praticamente nullo a circa 0.01. Con un livello di significatività più severo (ad esempio 1%) concluderemmo erroneamente che il termine quadratico non è significativo, e se rimuovessimo i termini uno alla volta il risultato dipenderebbe dall'ordine in cui lo facciamo;
+* il p-value del termine di grado **massimo** è invece lo stesso nelle due versioni: è l'unico termine che le due basi polinomiali rappresentano allo stesso modo, cioè come il contributo aggiuntivo rispetto a tutti i termini di grado inferiore.
+
+Per questo motivo, per decidere quale grado del polinomio sia necessario conviene stimare un modello sovradimensionato con polinomi ortogonali, individuare il grado massimo significativo e infine, se servono i valori fisici dei coefficienti, stimare il modello ridotto con polinomi grezzi.
+
+::: {.callout-tip}
+In pratica, si usano i polinomi grezzi quando interessano i valori dei coefficienti, e quelli ortogonali quando interessa solo il modello (ad esempio per fare previsioni) o per gradi elevati, e per analizzare la significatività (p-value) dei vari contributi.
+:::
+
+Il prossimo passo è utilizzare il modello per predire i valori di $y$ e verificare la normalità dei residui. Le funzioni `add_predictions()` e `add_residuals()` (della libreria `adas.utils`) aggiungono a una tabella rispettivamente la colonna `pred` con i valori previsti dal modello e la colonna `resid` con i residui, cioè le differenze tra i valori osservati e quelli previsti:
+
+```{r}
+df2 <- df %>%
+  add_predictions(df.lm) %>%
+  add_residuals(df.lm)
+
+# in rosso la relazione nominale, in blu il modello stimato
+df2 %>% ggplot(aes(x=x)) +
+  geom_point(aes(y=y)) +
+  geom_line(aes(y=y_nom), color="red") +
+  geom_line(aes(y=pred), color="blue")
+```
+
+Il modello è valido solo se i residui rispettano le ipotesi fatte, cioè se sono distribuiti normalmente (e, come vedremo, se non mostrano andamenti sistematici). Verifichiamo la normalità con il test di Shapiro-Wilk:
+
+```{r}
+shapiro.test(df2$resid)
+```
+
+
+::: {.callout-note}
+### Esercizio
+
+Verificare la normalità dei residui con metodi grafici come il diagramma Q-Q e l'istogramma.
+:::
+
+
+## Estrapolazione
+
+Un modello di regressione è valido solo all'interno dell'intervallo dei dati usati per stimarlo. Usarlo al di fuori di questo intervallo si chiama **estrapolazione**, ed è un'operazione rischiosa. Per mostrarlo, dividiamo i dati in due sottoinsiemi: quelli interni all'intervallo $(-7.5, 7.5)$ (`in`) e quelli esterni (`out`):
+
+```{r}
+df3 <- df %>%
+  mutate(
+    subset = ifelse(x > -2.5 & x < 13.5, "in", "out")
+  )
+
+df3 %>%
+  ggplot(aes(x=x, y=y, color=subset)) +
+  geom_point()
+```
+
+Ora stimiamo un modello usando **solo** i dati interni, e lo rappresentiamo su tutto l'intervallo. La funzione `geom_smooth()` stima e disegna direttamente un modello di regressione (con `method="lm"`) secondo la formula indicata; l'opzione `fullrange=TRUE` estende la curva a tutto l'intervallo dell'asse $x$. Volutamente scegliamo un polinomio di grado molto elevato (21):
+
+```{r}
+df3 %>%
+  ggplot(aes(x=x, y=y)) +
+  geom_point(aes(color=subset)) +
+  geom_smooth(
+    data=filter(df3, subset == "in"),
+    method="lm",
+    formula= y~poly(x, 21),
+    fullrange=TRUE
+  ) +
+  coord_cartesian(ylim=c(-15,60))
+```
+
+All'interno dell'intervallo il modello segue (anche troppo) fedelmente i dati, inseguendo il rumore casuale: si parla di **sovradattamento** (*overfitting*). Appena fuori dall'intervallo, invece, la curva diverge rapidamente e le previsioni non hanno più alcun senso. La funzione `coord_cartesian()` limita l'area visualizzata senza eliminare dati, altrimenti la curva renderebbe illeggibile il grafico.
+
+::: {.callout-note}
+### Esercizio
+Ripetere il grafico con polinomi di grado 1, 2 e 5 e commentare il risultato.
+:::
+
+La geometria `geom_smooth()` è comoda per fare una stima rapida, ma fornisce soltanto un risultato grafico. Per fare previsioni e analizzare i residui, bisogna stimare il modello con `lm()` e poi usare `add_predictions()` e `add_residuals()` come visto sopra.
+
+Con l'opzione `interval="prediction"`, la funzione `add_predictions()` aggiunge le colonne `fit` (valore previsto), `lwr` e `upr` (limiti inferiore e superiore dell'**intervallo di predizione**, al 95% per default). L'intervallo di predizione è la banda entro cui ci aspettiamo che cada una **nuova osservazione** di $y$, per un dato $x$:
+
+```{r}
+df %>%
+  add_predictions(df.lm, interval="prediction") %>%
+  ggplot(aes(x=x)) +
+  geom_line(aes(y=fit)) +
+  geom_ribbon(aes(ymin=lwr, ymax=upr), alpha=1/3) +
+  geom_point(aes(y=y))
+```
+
+Con `interval="confidence"` si ottiene invece l'**intervallo di confidenza**, cioè la banda entro cui si trova, con il 95% di probabilità, il **valore atteso** di $y$ (la curva vera). L'intervallo di confidenza è sempre più stretto di quello di predizione, perché quest'ultimo tiene conto anche della dispersione $\sigma$ delle singole osservazioni:
+
+```{r}
+df %>%
+  add_predictions(df.lm, interval="confidence") %>%
+  ggplot(aes(x=x)) +
+  geom_line(aes(y=fit)) +
+  geom_ribbon(aes(ymin=lwr, ymax=upr), alpha=1/3) +
+  geom_point(aes(y=y))
+```
+
+
+## Regressione ai minimi quadrati
+
+Non tutti i modelli possono essere espressi come modelli lineari nei parametri. Consideriamo ad esempio un **problema di contatto**: misuriamo la forza tra due corpi (es. sfera e piano) inizialmente separati mentre si avvicinano, e registriamo la forza $f$ in funzione della posizione $y$. Si tratta di una funzione che vale costantemente `bias` fino a $y_0$, e da $y_0$ in poi prosegue come una parabola con vertice in $(y_0, \mathrm{bias})$ e coefficiente quadratico $a$:
+
+$$
+f(y) = \begin{cases}
+\mathrm{bias} & y < y_0 \\
+\mathrm{bias} + a(y-y_0)^2 & y \geq y_0
+\end{cases}
+$$
+
+Il parametro $y_0$ compare in modo non lineare (e anche all'interno di una condizione), quindi `lm()` non è utilizzabile. Definiamo la funzione in R, sviluppando il quadrato nei coefficienti $b$ e $c$ della parabola, e rappresentiamola:
+
+```{r}
+f <- function(y, y0=0, bias=0, a=1) {
+  b <- -2 *a *y0
+  c <- bias + a * y0^2
+  f <- a * y^2 + b * y + c
+  # ifelse() è la versione vettorializzata di if-else
+  return(ifelse(y<y0, bias, f))
+}
+
+tibble(
+  y = seq(-2.5, 5, length.out=100),
+  f = f(y, -1, 1, 0.5)
+) %>%
+  ggplot(aes(x=y, y=f)) +
+  geom_line() +
+  geom_vline(xintercept=-1)
+```
+
+Generiamo ora dei dati sintetici con $y_0=2.5$, $\mathrm{bias}=3$ e $a=1$, aggiungendo un disturbo normale:
+
+```{r}
+set.seed(1)
+df <- tibble(
+  y = seq(-10, 10, length.out=100),
+  fn = f(y, 2.5, 3, 1),
+  f = fn + rnorm(length(y), 0, 2)
+)
+
+df %>% ggplot(aes(x=y, y=fn)) +
+  # geom_line(color="red") +
+  geom_point(aes(y=f))
+```
+
+Si noti che dai soli dati è molto difficile individuare il punto di contatto $y_0$, perché la parabola è molto piatta vicino al minimo. Tale valore può però essere **identificato** mediante una regresisone non lineare, che stima i parametri $y_0$, $\mathrm{bias}$ e $a$ a partire dai dati osservati.
+

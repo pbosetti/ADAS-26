@@ -1811,7 +1811,7 @@ Possiamo anzitutto esplorare i dati con un boxplot, per verificare se ci sono di
 
 ```{r}
 df %>% 
-  ggplot(aes(x=Temperature, y=Response, color=Material)) + 
+  ggplot(aes(x=Temperature, y=Response, fill=Material)) + 
   geom_boxplot()
 ```
 
@@ -1826,6 +1826,118 @@ dove $\mu$ è la media generale, $\alpha_i$ è l'effetto del $i$-esimo livello d
 La **formula** corrispondente è quindi `Response~Material + Temperature`, e il modello lineare può essere creato con `lm()` e analizzato con `anova()`:
 
 ```{r}
-lm(Response~Material + Temperature, data=df) %>% 
+lm(Response ~ Material + Temperature, data=df) %>% 
   anova()
 ```
+
+L'interpretazione è che sia il fattore `Material` che il fattore `Temperature` influenzano significativamente la vita della batteria.
+
+Possiamo però chiederci se ci sia **un'interazione** tra i due fattori, cioè se l'**effetto** di un fattore dipende dal **livello** dell'altro. In altre parole: cambiare la temperatura ha lo stesso effetto su tutti i materiali, oppure alcuni materiali sono più sensibili alla temperatura di altri? 
+
+In questo caso il modello statistico diventa:
+
+$$
+y_{ijk} = \mu + \alpha_i + \beta_j + (\alpha\beta)_{ij} + \epsilon_{ijk}
+$$
+
+dove $(\alpha\beta)_{ij}$ è l'effetto dell'interazione tra i due fattori. La formula corrispondente è `Response~Material + Temperature + Material:Temperature`, dove il simbolo `:` indica l'interazione tra i due fattori. 
+
+```{r}
+lm(Response ~ Material + Temperature + Material:Temperature, data=df) %>% 
+  anova()
+```
+
+Siccome è molto comune che i due fattori interagiscano, esiste una scorciatoia per includere automaticamente l'interazione tra tutti i fattori: il simbolo `*` indica infatti sia i due fattori che la loro interazione. La formula diventa quindi `Response~Material * Temperature`, equivalente a quella precedente:
+
+```{r}
+lm(Response ~ Material * Temperature, data=df) %>% 
+  anova()
+```
+
+Ora cerchiamo di illustrare graficamente il processo. Per farlo, raggruppiamo le osservazioni per ciascuna combinazione dei due fattori e calcoliamo la media e la variazione della vita della batteria:
+
+```{r}
+df %>% 
+  group_by(Material, Temperature) %>% 
+  summarise(
+    Life = mean(Response),
+    Min = min(Response),
+    Max = max(Response),
+    .groups = "drop"
+  )
+```
+
+
+::: {.callout-tip}
+L'opzione `.groups="drop"` indica a `summarise()` di non mantenere l'informazione sui gruppi nella tabella risultante, che altrimenti sarebbe ancora raggruppata per `Material` e `Temperature`. Omettere questa opzione non è un errore, ma può generare confusione se si eseguono altre operazioni sui dati raggruppati. Per questo motivo quando la si omette R dà un avviso.
+:::
+
+Siccome l'accoppiata `group_by/summarise` è molto comune, `summarise()` accetta anche l'argomento `.by`, che indica le colonne da usare per raggruppare i dati senza dover usare `group_by()`, e disattivando automaticamente le informazioni di raggruppamento:
+
+```{r}
+cl <- 0.9
+df %>% 
+  summarise(
+    n = n(),
+    Life = mean(Response),
+    Min = min(Response),
+    Max = max(Response),
+    .by = c(Material, Temperature)
+  ) 
+```
+
+Questa tabella può essere ora utilizzata per realizzare un grafico che comprenda le bande tra massimo e minimo per ogni ascissa, mediante la geometria `geom_ribbon()`. L'argomento `group` indica a `ggplot2` di collegare i punti con la stessa etichetta di `Material`:
+
+```{r}
+cl <- 0.9
+df %>% 
+  summarise(
+    n = n(),
+    Life = mean(Response),
+    Min = min(Response),
+    Max = max(Response),
+    .by = c(Material, Temperature)
+  ) %>% 
+    ggplot(aes(x=Temperature, y=Life, color=Material, group=Material)) + 
+    geom_point() + 
+    geom_line() +
+    geom_ribbon(aes(ymin=Min, ymax=Max, fill=Material), alpha=1/3)
+```
+
+L'uso di massimo e minimo non è però molto raffinato. Più interessante è utilizzare l'intervallo di confidenza, che può essere calcolato dalla funzione `t.test` a un campione sui dati di ciscuna combinazione di fattori (4 punti ciascuna):
+
+```{r}
+cl <- 0.9
+df %>% 
+  summarise(
+    n = n(),
+    Life = mean(Response),
+    Min = t.test(Response, conf.level=cl)$conf.int[1],
+    Max = t.test(Response, conf.level=cl)$conf.int[2],
+    .by = c(Material, Temperature)
+  ) %>% 
+    ggplot(aes(x=Temperature, y=Life, color=Material, group=Material)) + 
+    geom_point() + 
+    geom_line() +
+    geom_ribbon(aes(ymin=Min, ymax=Max, fill=Material), alpha=1/3)
+```
+
+Le condizioni operative in cui gli intervalli di confidenza non sono sovrapposti indicano **differenze statisticamente significative**.
+
+
+::: {.callout-important}
+### Interazione
+L'ultino grafico mostra chiaramente cosa si intende per **interazione**, che come predetto dalla ANOVA ni questo caso è significativa: l'effetto della temperatura sulla vita della batteria dipende dal materiale usato. In particolare, i materiali 2 e 3 hanno un comportamento simile, mentre il materiale 1 è molto più sensibile alla temperatura tra 15°C e 70°C.
+
+:::
+
+
+Un altro modo è realizzre un grafico di Tukey. Dato che questa volta abbiamo due fattori, dobbiamo raggruppare i dati per uno dei due fattori, e realizzare un grafico di Tukey per ciascun gruppo. La funzione `ggTukey()` accetta l'argomento `splt` per indicare la colonna da usare per suddividere i gruppi, passata come *mezza formula* (cioè `~fattore`):
+
+
+```{r}
+df %>%
+  ggTukey(Response ~ Material, splt= ~Temperature)
+```
+
+Anche qui, le uniche due barre che non interzecano lo 0 sono le differenze 3-1 e 2-1 a 70°C.
