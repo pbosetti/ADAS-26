@@ -356,3 +356,239 @@ tibble(
   geom_vline(xintercept=-1)
 ```
 
+Generiamo ora dei dati sintetici con $y_0=2.5$, $\mathrm{bias}=3$ e $a=1$, aggiungendo un disturbo normale:
+
+```{r}
+set.seed(1)
+df <- tibble(
+  y = seq(-10, 10, length.out=100),
+  fn = f(y, 2.5, 3, 1),
+  f = fn + rnorm(length(y), 0, 2)
+)
+
+df %>% ggplot(aes(x=y)) +
+  geom_line(aes(y=fn), color=grey(3/4)) +
+  geom_point(aes(y=f))
+```
+
+Si noti che dai soli dati è molto difficile individuare il punto di contatto $y_0$, perché la parabola è molto piatta vicino al minimo. Tale valore può però essere **identificato** mediante una regressione non lineare, che stima i parametri $y_0$, $\mathrm{bias}$ e $a$ a partire dai dati osservati.
+
+Il metodo dei **minimi quadrati** consiste nel cercare i valori dei parametri che rendono minima la somma dei quadrati dei residui:
+
+$$
+\Phi(y_0, \mathrm{bias}, a) = \sum_{i=1}^N \left(f_i - f(y_i; y_0, \mathrm{bias}, a)\right)^2
+$$
+
+Per i modelli lineari il minimo si ottiene analiticamente (ed è proprio ciò che fa `lm()`); nel caso generale bisogna invece cercarlo **numericamente**. Definiamo la funzione obiettivo $Z$, che prende come primo argomento il vettore dei parametri, e la minimizziamo con la funzione `optim()`, partendo da una stima iniziale dei parametri:
+
+```{r}
+Phi <- function(par, data) {
+  sum((data$f - f(data$y, par["y0"], par["bias"], par["a"]))^2)
+}
+
+fit <- optim(c(y0=0, bias=0, a=1), Phi, data=df)
+fit$par         # parametri stimati
+fit$convergence # 0 indica che l'ottimizzazione è andata a buon fine
+```
+
+R mette anche a disposizione la funzione `nls()` (*non-linear least squares*), che usa una formula come `lm()`. A destra della `~` si scrive l'espressione del modello, indicando i parametri per nome, e con l'argomento `start` si forniscono i valori iniziali dei parametri da stimare. Rispetto a `optim()`, `nls()` fornisce anche gli errori standard e i p-value dei parametri:
+
+```{r}
+# NB: a sinistra della ~ c'è la colonna f, a destra la funzione f()
+df.nls <- nls(f ~ f(y, y0, bias, a), data=df, start=list(y0=0, bias=0, a=1))
+summary(df.nls)
+```
+
+
+::: {.callout-important}
+### Dov'è $R^2$?
+
+Per la regressione non lineare non esiste un equivalente del coefficiente di determinazione $R^2$ dei modelli lineari. In altre parole, per una regressione non lineare si possono avere valori di $R^2$ negativi, oppure regressioni palesemente errate con valori di $R^2$ molto vicini a 1. Per questo motivo, per valutare la bontà del modello conviene sempre rappresentare graficamente i dati osservati e quelli previsti dal modello, e verificare la normalità dei residui.
+
+Per confrontare regressioni ottenute con differenti modelli non lineari è possibile usare il criterio di informazione di Akaike (AIC), che tiene conto sia della bontà del modello che del numero di parametri stimati. **Più basso è il valore di AIC, migliore è il modello**. In R si calcola con la funzione `AIC()`:
+
+```{r}
+AIC(df.nls)
+AIC(lm(f~poly(y, 7), data=df))
+```
+
+:::
+
+
+Il modello stimato si usa come quelli lineari, ad esempio per aggiungere previsioni e residui alla tabella:
+
+```{r}
+df %>%
+  add_predictions(df.nls) %>%
+  ggplot(aes(x=y)) +
+  geom_smooth(
+    aes(y=f), color="orange", method="lm", formula=y~poly(x, 7)) +
+  geom_point(aes(y=f)) +
+  geom_line(aes(y=fn), color="red") +
+  geom_line(aes(y=pred), color="blue")
+```
+
+Si noti che abbiamo aggiunto anche la stima di un modello lineare di grado 7, per mostrare che il modello non lineare stimato con `nls()` segue meglio i dati osservati, giustificando i valori di AIC più bassi sopra riportati.
+
+::: {.callout-warning}
+Gli algoritmi di ottimizzazione numerica sono **iterativi** e partono dai valori iniziali forniti: se questi sono troppo lontani dalla soluzione, l'algoritmo può non convergere o convergere a un minimo locale. È quindi buona norma scegliere valori iniziali ragionevoli (ad esempio stimandoli dal grafico dei dati) e verificare sempre il risultato graficamente.
+:::
+
+::: {.callout-note}
+### Esercizio
+Verificare la normalità dei residui del modello `df.nls`, e provare a ripetere la stima con valori iniziali diversi (ad esempio `y0=-5`).
+:::
+
+
+
+## Regressione lineare generalizzata
+
+Carichiamo la tabella di dati di esempio "soap_bottles.dat". Essa contiene i risultati di un *drop test* su bottiglie di sapone, in cui si verifica la sopravvivenza della bottiglia al variare del livello di riempimento $p$ rispetto alla capacità massima dopo una caduta da 1 m di altezza. La colonna `OK` indica se la bottiglia è sopravvissuta (`TRUE`) o meno (`FALSE`). 
+
+Infatti, il polmone d'aria della bottiglia consente di assorbire le onde di sovrapressione generate dall'urto, e quindi la probabilità di sopravvivenza dipende dal livello di riempimento (oltre che dalle specificità aleatorie della singola bottiglia). La relazione tra la probabilità di fallimento e il livello di riempimento è tipicamente **sigmoide**, e può essere modellata con una **regressione logistica**, che tipicamente rappresenta dei processi, come questo, **bimodali**.
+
+Per comodità, Creiamo una nuova colonna `fail` che indica il fallimento del test, e rimuoviamo la colonna `OK`:
+
+```{r}
+data <- examples_url("soap_bottles.dat") %>% 
+  read.table(header=T, comment="#") %>% 
+  mutate(
+    fail = !OK
+  ) %>% 
+  select(-OK)
+
+data %>% head()
+```
+
+Osserviamo la distribuzione dei valori di `p` in un istogramma, con un *rug plot* che indica i valori di `p` per le bottiglie che hanno fallito/superato il test:
+
+```{r}
+data %>% 
+  ggplot(aes(x=p)) +
+  geom_histogram(bins=20, fill=gray(1/2), color="black") +
+  geom_rug(aes(color=fail))
+```
+
+
+Il set di dati è abbastanza sostanzioso:
+
+```{r}
+dim(data)
+```
+
+Possiamo quindi dividerlo in due parti: un sottoinsieme di **addestramento** (*training set*) per stimare i parametri del modello, e un sottoinsieme di **validazione** (*validation set*) per verificare la bontà del modello stimato. La divisione può essere fatta in modo casuale, ad esempio con una probabilità dell'80% di finire nel sottoinsieme di addestramento e del 20% in quello di validazione.
+
+Per farlo, generiamo una colonna `training` che contiene etichette casuali "train" o "valid" per ciascun record, con probabilità 80% e 20% rispettivamente. La funzione `sample()` genera un campione casuale di etichette, e l'argomento `replace=TRUE` indica che valore può essere estratto più volte (si dice *campionamento con reinserimento*):
+
+```{r}
+sample(c("train", "valid"), size=5, replace=TRUE)
+```
+
+Quindi:
+
+```{r}
+set.seed(1)
+data <- data %>% 
+  mutate(
+    training=sample(c("train", "valid"), size=n(), prob=c(80, 20), replace=TRUE)
+  )
+```
+
+Per verificare la distribuzione dei dati nei due sottoinsiemi, possiamo contare il numero di record in ciascun sottoinsieme mediante `dplyr::summarise()`:
+
+```{r}
+data %>% 
+  summarise(
+    n=n(),
+    .by=training
+  )
+```
+
+
+Finalmente possiamo regredire il modello generalizzato, usando come **link function** la funzione logit. In R, la regressione logistica si ottiene con la funzione `glm()` (*generalized linear model*), indicando come argomento `family="binomial"`:
+
+```{r}
+data.glm <- glm(fail~p, family="binomial", data=filter(data, training=="train"))
+
+summary(data.glm)
+coef(data.glm)
+```
+
+La funzione logit è definita come:
+
+$$
+\mathrm{logit}(x) = \frac{1}{1 + e^{-(px+m)} }
+$$
+Che è equivalente alla:
+
+$$
+\mathrm{logit}(x) = \frac{1}{1 + e^{-p(x-x_0)}}
+$$
+
+dove l'ascissa del punto di flesso $x_0$ è legata ai coefficienti del modello dalla relazione:
+
+$$
+x_0 = -m/p
+$$
+
+Quindi:
+
+```{r}
+p <-  coef(data.glm)[2]
+x0 <- -coef(data.glm)[1] / p
+x0
+p
+```
+
+Per visualizzare la regressione aggiungiamo le predizioni alla tabella, specificando `type="response"` per ottenere le probabilità di fallimento (altrimenti si ottengono i valori della funzione logit senza la trasformazione inversa):
+
+```{r}
+data <- data %>% 
+  add_predictions(data.glm, type="response")
+```
+
+
+Possiamo ora mettere in grafico i dati e la curva di regressione, distinguendo i due sottoinsiemi di addestramento e validazione. La linea rossa verticale indica il punto di flesso della curva e separa le due regioni di probabilità di fallimento maggiore o minore del 50%, con gli insiemi dei falsi positivi e dei falsi negativi equipopolati:
+
+```{r}
+data %>% 
+  mutate(
+    correct = (fail == (pred > 0.5))
+  ) %>% 
+  ggplot(aes(x=p)) + 
+  geom_line(aes(y=pred)) +
+  geom_point(aes(y=as.numeric(fail), color=correct)) +
+  geom_vline(xintercept=x0, color="red") + 
+  facet_wrap(~training, nrow=2)
+```
+
+Si noti l'utilizzo di `facet_wrap()` per creare due grafici separati per i due sottoinsiemi, scegliendo i sottoinsiemi con `~training`, e di `as.numeric()` per convertire i valori booleani in numerici (0/1) in modo da poterli rappresentare sull'asse verticale.
+
+Si osserva che gli errori di classificazione sono equiprobabili anche sull'insieme di validazione (due falsi positivi e due falsi negativi).
+
+In maniera più quantitativa, possiamo contare e confrontare i vari casi:
+
+```{r}
+error_type <- function(outcome, pred) {
+  if (outcome == pred) return("correct")
+  else if (outcome & !pred) return("false neg")
+  else if (!outcome & pred) return("false pos")
+}
+
+data %>% 
+  mutate(
+    type=map2_chr(fail, pred>0.5, error_type)
+  ) %>% 
+  summarise(
+    count=n(),
+    .by = c(training, fail, type)
+  ) %>% 
+  arrange(training, fail, type)
+```
+
+
+::: {.callout-note}
+### Esercizio
+Calcolare la tabella con le percentuali di falsi positivi e falsi negativi per i due sottoinsiemi.
+
+:::
