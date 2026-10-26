@@ -185,6 +185,56 @@ Per questo motivo, per decidere quale grado del polinomio sia necessario convien
 In pratica, si usano i polinomi grezzi quando interessano i valori dei coefficienti, e quelli ortogonali quando interessa solo il modello (ad esempio per fare previsioni) o per gradi elevati, e per analizzare la significatività (p-value) dei vari contributi.
 :::
 
+Graficamente, per un polinomio grezzo:
+
+```{r}
+df.lm <- lm(y~poly(x, 3, raw=T), data=df)
+df.c <- coef(df.lm)
+df %>% mutate(
+  p0 = df.c[1],
+  p1 = df.c[2] * x,
+  p2 = df.c[3] * x^2,
+  p3 = df.c[4] * x^3
+) %>% 
+  ggplot(aes(x=x)) + 
+  geom_line(aes(y=p0), color="red") +
+  geom_line(aes(y=p0+p1), color="blue") +
+  geom_line(aes(y=p0+p2), color="green") +
+  geom_line(aes(y=p0+p3), color="black") + 
+  geom_line(aes(y=y_nom), color="orange", lty=2)
+```
+
+Invece, per un polinomio ortogonale ogni contributo è $\beta_k P_k(x)$, dove $P_k$ è il polinomio ortogonale di grado $k$ e $\beta_k$ il coefficiente stimato. La somma dei contributi fino al grado $k$ fornisce la stima del modello di grado $k$:
+
+```{r}
+df.lmo <- lm(y~poly(x, 3), data=df)
+df.co <- coef(df.lmo)
+P <- poly(df$x, 3)   # same basis used inside lm (same x values)
+df %>% mutate(
+  p0 = df.co[1],
+  p1 = df.co[2] * P[,1],
+  p2 = df.co[3] * P[,2],
+  p3 = df.co[4] * P[,3]
+) %>% 
+  ggplot(aes(x=x)) + 
+  geom_line(aes(y=p0), color="red") +
+  geom_line(aes(y=p0+p1), color="blue") +
+  geom_line(aes(y=p0+p1+p2), color="green") +
+  geom_line(aes(y=p0+p1+p2+p3), color="black") + 
+  geom_line(aes(y=y_nom), color="orange", lty=2)
+
+```
+
+Si noti che ogni componente rappresenta **esattamente** la regressione dei dati fino al grado corrispondente.
+
+
+::: {.callout-tip}
+### Esercizio
+Ripetere gli ultimidue grafici trasformando la tabella in forma *tidy* e usando un'unica geometria `geom_line()` con l'estetica `color` mappata sulla colonna che indica il grado del polinomio. Aggiungere anche i punti dei dati osservati.
+
+:::
+
+
 Il prossimo passo è utilizzare il modello per predire i valori di $y$ e verificare la normalità dei residui. Le funzioni `add_predictions()` e `add_residuals()` (della libreria `adas.utils`) aggiungono a una tabella rispettivamente la colonna `pred` con i valori previsti dal modello e la colonna `resid` con i residui, cioè le differenze tra i valori osservati e quelli previsti:
 
 ```{r}
@@ -305,21 +355,4 @@ tibble(
   geom_line() +
   geom_vline(xintercept=-1)
 ```
-
-Generiamo ora dei dati sintetici con $y_0=2.5$, $\mathrm{bias}=3$ e $a=1$, aggiungendo un disturbo normale:
-
-```{r}
-set.seed(1)
-df <- tibble(
-  y = seq(-10, 10, length.out=100),
-  fn = f(y, 2.5, 3, 1),
-  f = fn + rnorm(length(y), 0, 2)
-)
-
-df %>% ggplot(aes(x=y, y=fn)) +
-  # geom_line(color="red") +
-  geom_point(aes(y=f))
-```
-
-Si noti che dai soli dati è molto difficile individuare il punto di contatto $y_0$, perché la parabola è molto piatta vicino al minimo. Tale valore può però essere **identificato** mediante una regresisone non lineare, che stima i parametri $y_0$, $\mathrm{bias}$ e $a$ a partire dai dati osservati.
 
