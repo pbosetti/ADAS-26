@@ -591,4 +591,28 @@ data %>%
 ### Esercizio
 Calcolare la tabella con le percentuali di falsi positivi e falsi negativi per i due sottoinsiemi.
 
+### Soluzione
+
+```{r}
+# calcoliamo prima i totali per ciascun sottoinsieme
+totals <- data %>% summarise(n=n(), .by=training)
+
+# Per ogni riga aggiungiamo la colonna dei totali
+data %>% 
+  mutate(
+    type=map2_chr(fail, pred>0.5, error_type),
+    totals=map_int(training, \(x) totals$n[totals$training==x])
+  ) %>% 
+  # calcoliamo il sommario calcolando la frazione percentuale
+  summarise(
+    count=n(),
+    totals=first(totals),
+    fraction = (count/first(totals)*100) %>% round(1),
+    .by = c(training, fail, type)
+  ) %>% 
+  arrange(training, fail, type) %>% 
+  knitr::kable() # formatta meglio la tabella per la visualizzazione
+```
+
+Provare a cambiare la soglia di classificazione da 0.5 a 0.4 e a 0.6, e osservare come cambiano le percentuali di falsi positivi e falsi negativi.
 :::
