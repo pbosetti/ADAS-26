@@ -601,7 +601,7 @@ totals <- data %>% summarise(n=n(), .by=training)
 data %>% 
   mutate(
     type=map2_chr(fail, pred>0.5, error_type),
-    totals=map_int(training, \(x) totals$n[totals$training==x])
+    totals=map_int(training, function(x) totals$n[totals$training==x])
   ) %>% 
   # calcoliamo il sommario calcolando la frazione percentuale
   summarise(
@@ -615,4 +615,271 @@ data %>%
 ```
 
 Provare a cambiare la soglia di classificazione da 0.5 a 0.4 e a 0.6, e osservare come cambiano le percentuali di falsi positivi e falsi negativi.
+:::
+
+
+## Dati multivariati
+
+Quanto abbiamo visto sopra è direttamente estendibile al caso in cui il modello da regredire è un **campo scalare** (cioè $y=f(\mathbf x),~y\in \mathbb{R},~\mathbf{x}\in\mathbb{R}^n$).
+
+Ad esempio, consideriamo la funzione:
+
+$$
+y = 10 - x_1 + 0.1x_1^2 + 0.1(-10x_2 + 1.5x_2^2) + 0.05x_1x_2
+$$
+
+che in R diventa:
+
+```{r}
+y <- function(x1, x2) 10 - x1 + 0.1*x1^2 + 0.1*(-10*x2 + 1.5*x2^2) + 0.05*x1*x2
+```
+
+Costruiamo una **griglia** di osservazioni. Nel caso scalare, la griglia era un vettore (o *sequenza*) di valori di $x$; nel caso multivariato, la griglia è una tabella con tutte le combinazioni dei valori di $x_1$ e $x_2$, ottenuta con `expand.grid()`. La funzione `mutate()` aggiunge una colonna con i valori della funzione $y$ calcolati per ciascuna combinazione di $x_1$ e $x_2$:
+
+```{r}
+N <- 50
+dfn <- expand.grid(
+  x1 = seq(0, 10, length.out=N),
+  x2 = seq(0, 10, length.out=N)
+) %>% 
+  mutate(y = y(x1, x2))
+
+head(dfn)
+```
+
+Per visualizzare il campo scalare, possiamo usare la geometria `geom_contour_filled()` di `ggplot2`, che disegna le **linee di livello** della funzione $y$, riempite con colori diversi a seconda del valore di $y$:
+
+```{r}
+dfn %>% 
+  ggplot(aes(x=x1, y=x2, z=y)) +
+  geom_contour_filled()
+```
+
+Dato che la funzione $y$ è una combinazione di polinomi di grado 2, la superficie risultante è ovviamente un paraboloide. Dalle curve di livello notiamo che le sezioni sono ovali, cioè i coefficienti di secondo grado sono diversi, e che gli ovali sono inclinati, cioè c'è un termine di interazione tra $x_1$ e $x_2$ (ovvero un coefficiente non nullo per il termine $x_1x_2$).
+
+Qulla base di questa **superficie nominale**, vogliamo ora simulare un esperimento in cui osserviamo `N_s` punti casuali della superficie, con un certo rumore casuale. Per farlo, estraiamo `N_s` punti casuali dalla griglia, li ripetiamo `rpt` volte e aggiungiamo un disturbo normale proporzionale all'intervallo dei valori di $y$:
+
+```{r}
+set.seed(10)
+Ns <- 100 # punti di misura
+rpt <- 3  # ripetizioni per ogni punto di misura
+
+df <- dfn %>% 
+  slice_sample(n=Ns) %>%                  # seleziono solo Ns punti
+  slice(rep(1:n(), each=rpt)) %>%         # ripeto ogni punto rpt volte
+  mutate(y = y + rnorm(n(), 0, diff(range(y))/25)) # aggiungo il rumore
+```
+
+Ora possiamo rappresentare i dati osservati in rosso sopra la superficie nominale, con l'aggiunta delle posizioni di griglia originali in trasparenza:
+
+```{r}
+dfn %>% 
+  ggplot(aes(x=x1, y=x2)) + 
+  geom_contour_filled(aes(z=y)) +
+  geom_point(alpha=1/4) +
+  geom_point(aes(size=y), data=df, color="red")
+```
+
+
+::: {.callout-note}
+
+Nell'ultimo grafico, `ggplot` riceve la tabella dati *nominale* `dfn` via pipe, e la usa per le prime due geometrie (contorno e griglia originale). La terza geometria riceve invece la tabella dati *osservata* con l'opzione `data=df`, che contiene **solo i punti misurati**, e li rappresenta in rosso, con dimensione proporzionale al valore di $y$ misurato. In questo modo possiamo confrontare i dati osservati con la superficie nominale.
+
+:::
+
+Nella realtà, non conosciamo la superficie nominale ma vediamo solo i valori di $y$ nei punti valutati:
+
+
+```{r}
+dfn %>% 
+  ggplot(aes(x=x1, y=x2)) + 
+  geom_point(alpha=1/4) +
+  geom_point(aes(size=y), data=df, color="red")
+```
+
+
+Osserviamo che la dimensione dei punti è minima nel quadrante in basso a sinistra, e tende ad aumentare nelle due direzioni. È quindi ragionevole ipotizzare che la superficie nominale sia un paraboloide con un minimo in basso a sinistra, e che quindi il modello da stimare sia un polinomio di grado 2 in due variabili, con tutte le possibili combinazioni:
+
+```{r}
+df.lm <- lm(y ~ poly(x1, 2)*poly(x2, 2), data=df)
+summary(df.lm)
+```
+
+Dato che abbiamo usato polinomi ortogonali, i coefficienti stimati non hanno un significato fisico diretto, ma la loro significatività indica che il modello è corretto. Possiamo quindi mantenere solo i polinomi in $x_1$ e $x_2$ di grado 2, più il termine di interazione $x_1x_2$, che è significativo. Inoltre, se vogliamo ottenere i valori fisici dei coefficienti, possiamo stimare il nuovo modello con polinomi grezzi:
+
+```{r}
+df.lm <- lm(y ~ poly(x1, 2, raw=T) + poly(x2, 2, raw=T) + x1:x2, data=df)
+summary(df.lm)
+coef(df.lm)
+```
+
+
+Per concludere, possiamo confrontare la superficie nominale con le curve di livello della superficie stimata dal modello, aggiungendo le predizioni alla tabella nominale:
+
+```{r}
+dfn %>% 
+  add_predictions(df.lm) %>% 
+  ggplot(aes(x=x1, y=x2)) + 
+  geom_contour_filled(aes(z=y)) +
+  geom_contour(aes(z=pred))
+```
+
+
+Infine, per verificare la bontà del modello stimato, possiamo studiare la normalità dei residui, aggiungendo i residui alla tabella nominale e rappresentandoli con un diagramma Q-Q:
+
+```{r}
+df %>% 
+  add_residuals(df.lm) %>% 
+  ggplot(aes(sample=resid)) +
+  geom_qq() +
+  geom_qq_line()
+
+residuals(df.lm) %>% shapiro.test()
+```
+
+
+
+::: {.callout-important}
+
+Il diagramma Q-Q è OK nella parte bassa, ma nella parte alta mostra una certa deviazione già da $2\sigma$; infatti, il test di Shapiro-Wilk indica che i residui non sono distribuiti normalmente. 
+
+Tuttavia, noi abbiamo generato il rumore **proprio da una distribuzione normale**: come mai abbiamo questo risultato apparentemente contrario?
+
+La risposta è che in questo caso generando il rimore con il `set.seed(0)` ricadiamo proprio in un caso in cui il test dà un **falso positivo**. Provare a cambiare il seme con `set.seed(11)` e ripetere la stima del modello e il test di Shapiro-Wilk: in questo caso i residui risultano distribuiti normalmente.
+
+:::
+
+
+
+# Domande e risposte
+
+Di seguito le risposte ad alcune domande poste durante la lezione.
+
+## Come funziona `add_predictions()`?
+
+Generiamo un piccolo set di dati da un polinomio di terzo grado, con rumore normale:
+
+```{r}
+set.seed(1)
+N <- 20
+df <- tibble(
+  x = 1:N,
+  y = 10 + 3*x + 0.1*x^2 + 0.05*x^3 + rnorm(N, 0, 5)
+)
+
+df %>% ggplot(aes(x=x, y=y)) + 
+  geom_point()
+```
+
+Stimiamo un modello volutamente sovradimensionato (grado 5), con polinomi ortogonali. Dal sommario si vede che i termini di quarto e quinto grado non sono significativi:
+
+```{r}
+df.lm <- lm(y~poly(x, 5), data=df)
+summary(df.lm)
+```
+
+Ogni osservazione $y_i$ si può scomporre in due parti: il valore **previsto** dal modello $\hat y_i$ e il **residuo** $\epsilon_i$. Per un modello di terzo grado, ad esempio:
+
+$$
+y_i = a + bx_i + cx_i^2 + dx_i^3 + \epsilon_i = \hat y_i + \epsilon_i
+$$
+
+La funzione `add_predictions()` calcola $\hat y_i$ per ogni riga della tabella e lo salva nella colonna `pred`; la funzione `add_residuals()` calcola $\epsilon_i = y_i - \hat y_i$ e lo salva nella colonna `resid`. Possiamo verificarlo controllando che la somma delle due colonne (`test`) restituisca esattamente i valori osservati `y`:
+
+```{r}
+df %>% 
+  add_predictions(df.lm) %>% 
+  add_residuals(df.lm) %>% 
+  mutate(test=pred + resid)
+```
+
+Internamente, `add_predictions()` usa la funzione base `predict()`, che valuta il modello sui valori dei predittori contenuti nella tabella passata come argomento `newdata`. Le due espressioni seguenti sono equivalenti:
+
+```{r}
+#| eval: false
+df %>% add_predictions(df.lm)
+df %>% mutate(pred=predict(df.lm, newdata=df))
+```
+
+Il vantaggio di `add_predictions()` è che si integra nelle pipe di `tidyverse` e, con l'opzione `interval`, aggiunge direttamente le colonne degli intervalli di confidenza o di predizione.
+
+Dato che il modello viene **valutato** sui valori presenti nella tabella, la tabella non deve necessariamente essere quella usata per la stima: basta che contenga una colonna con lo stesso nome del predittore (qui `x`). Possiamo quindi calcolare il valore previsto in punti qualsiasi, ad esempio in corrispondenza dei quartili di $x$:
+
+```{r}
+pred_q <- tibble(
+  x=quantile(df$x)
+) %>% 
+  add_predictions(df.lm)
+pred_q
+```
+
+La funzione `pull()` estrae una colonna come vettore, ad esempio per ottenere il valore previsto in corrispondenza della mediana (il terzo quantile della serie, cioè il 50%):
+
+```{r}
+a <- pred_q %>% pull(pred)
+a[3]
+```
+
+::: {.callout-note}
+In classe abbiamo scritto `... %>% pull(pred) -> a`: l'operatore `->` è l'assegnazione **verso destra**, ed è equivalente ad `a <- ...`. È comodo in fondo a una lunga pipe, ma rende il codice meno leggibile, perché la variabile assegnata compare in fondo invece che all'inizio. Per questo in genere si preferisce `<-`.
+:::
+
+::: {.callout-warning}
+Una tabella costruita "a mano" per le previsioni deve contenere **tutti** i predittori del modello, con gli stessi nomi delle colonne usate nella formula, altrimenti `predict()` dà un errore. Inoltre, valutare il modello fuori dall'intervallo dei dati di stima significa **estrapolare**, con i rischi visti sopra.
+:::
+
+
+## Come si usano le funzioni `map()` di `purrr`?
+
+Le funzioni `map*()` della libreria `purrr` (parte di `tidyverse`) applicano una funzione a **ciascun elemento** di un vettore (o di una lista), e raccolgono i risultati. Sono utili soprattutto per applicare elemento per elemento funzioni non vettorializzate, come abbiamo visto con `bmi_risk()` nella lezione precedente.
+
+La forma di base è `map(.x, .f)`: applica la funzione `.f` a ogni elemento di `.x` e restituisce sempre una **lista**:
+
+```{r}
+v2 <- c(1, 2, 3)
+map(v2, sqrt)
+```
+
+Se sappiamo che ogni risultato è un singolo valore di un certo tipo, conviene usare le varianti tipizzate, che restituiscono un **vettore** di quel tipo (e danno un errore se un risultato non è compatibile):
+
+* `map_dbl()`: numeri reali
+* `map_int()`: numeri interi
+* `map_chr()`: stringhe
+* `map_lgl()`: valori logici
+
+```{r}
+map_dbl(v2, sqrt)
+map_chr(v2, \(x) paste("valore", x))
+map_lgl(v2, \(x) x > 1.5)
+```
+
+La funzione da applicare può essere il nome di una funzione esistente (come `sqrt`), oppure una **funzione anonima** definita sul posto con la sintassi `\(x) espressione`, equivalente a `function(x) espressione`.
+
+Quando la funzione ha bisogno di **due** argomenti presi da due vettori della stessa lunghezza, si usa `map2()` (e le sue varianti tipizzate): il primo elemento di `v1` viene accoppiato con il primo di `v2`, il secondo con il secondo, e così via:
+
+```{r}
+v1 <- c("uno", "due", "tre")
+map2_chr(v1, v2, \(x1,x2) paste(x1, ":", x2))
+```
+
+Per un numero qualsiasi di argomenti si usa `pmap()`, che riceve una lista di vettori (o una tabella, che in R è una lista di colonne). Gli elementi della lista vengono passati alla funzione per nome:
+
+```{r}
+tibble(
+  a = c(1, 2, 3),
+  b = c(10, 20, 30),
+  c = c(100, 200, 300)
+) %>% 
+  pmap_dbl(\(a, b, c) a + b + c)
+```
+
+Le funzioni `map*()` si usano tipicamente all'interno di `mutate()`, per calcolare una nuova colonna applicando una funzione riga per riga, come abbiamo fatto con `map2_chr()` nella classificazione degli errori della regressione logistica:
+
+```{r}
+tibble(nome=v1, numero=v2) %>% 
+  mutate(etichetta=map2_chr(nome, numero, \(x1, x2) paste(x1, ":", x2)))
+```
+
+::: {.callout-tip}
+Le funzioni `map*()` non vanno usate quando esiste già una funzione vettorializzata: ad esempio `map2_chr(v1, v2, paste)` funziona, ma `paste(v1, v2)` ottiene lo stesso risultato in modo più semplice e molto più veloce. Le mappe servono quando la funzione **non** è vettorializzata (tipicamente perché contiene un `if`), o quando il risultato di ciascuna applicazione non è un singolo valore (ad esempio un modello o una tabella, che finiscono in una lista).
 :::
