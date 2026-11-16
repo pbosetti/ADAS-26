@@ -57,3 +57,11 @@ _*
 .DS_Store
 
 .quarto/
+.vscode/
+
+*_files/*
+/.quarto/
+**/*.quarto_ipynb
+
+
+*_files
