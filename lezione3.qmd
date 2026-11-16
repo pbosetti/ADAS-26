@@ -1,0 +1,286 @@
+---
+title: "Lezione 3"
+subtitle: "Bootstrap"
+author: "Paolo Bosetti"
+lang: IT-it
+format:
+  html:
+    toc: true # ToC = Table of contents
+    number-sections: true
+  pdf:
+    toc: true
+    number-sections: true
+    papersize: "A4"
+    # Quanto segue fa in modo che i blocchi di codice lunghi vengano spezzati
+    # su più linee (trucco LaTeX)
+    include-in-header:
+      text: |
+        \usepackage{fvextra}
+        \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+        \RecustomVerbatimEnvironment{verbatim}{Verbatim}{breaklines,breakanywhere}
+---
+
+```{r setup}
+#| include: false
+#| warning: false
+# La linea qui sopra nasconde questo blocco di codice nel documento finale
+library(tidyverse)
+library(adas.utils)
+library(boot)
+# Imposto la larghezza max in caratteri dell'output di testo dei blocchi di
+# codice a 70 caratteri:
+options(width = 70)
+```
+
+# Bootstrap non-parametrico
+
+## Esempio base
+
+Vogliamo studiare la **mediana** per una distribuzione **uniforme**.
+
+Generiamo un campione `x` di 100 valori uniformi in $[1, 10]$. L'idea del bootstrap è trattare il campione come se fosse la popolazione: estraiamo da `x` un nuovo campione **con reinserimento** e della stessa numerosità, e ne calcoliamo la mediana $\theta^*$. Ripetendo l'operazione $B$ volte otteniamo la **distribuzione bootstrap** della mediana, che approssima la sua distribuzione campionaria.
+
+Il primo grafico mostra la distribuzione delle $B$ repliche $\theta^*$ (la linea rossa ne indica la media); il secondo, per confronto, la distribuzione del campione originale, circa uniforme.
+
+```{r}
+set.seed(2)
+x <- runif(100, 1, 10)
+B <- 50000
+
+df <- tibble(
+  i = 1:B,
+  theta_star = replicate(B, median(sample(x, replace=TRUE)))
+)
+
+df %>%
+  ggplot(aes(x=theta_star, y=after_stat(density))) +
+  geom_histogram(bins=20, fill=gray(0.5), color="black") +
+  geom_density(fill="red", alpha=0.5) +
+  geom_vline(xintercept = mean(df$theta_star), color="red")
+
+tibble(x=x) %>%
+  ggplot(aes(x=x, y=after_stat(density))) +
+  geom_histogram(bins=20, fill=gray(0.5), color="black")
+```
+
+Nonostante il campione sia uniforme, la distribuzione della mediana è approssimativamente normale.
+
+### Intervallo di confidenza
+
+Con il **metodo dei percentili**, l'intervallo di confidenza al 95% è delimitato dai quantili al 2.5% e al 97.5% della distribuzione bootstrap. Graficamente, li leggiamo dalla funzione di ripartizione empirica (ECDF) delle repliche, in corrispondenza delle linee orizzontali tratteggiate:
+
+```{r}
+ggplot() +
+  geom_function(fun=ecdf(df$theta_star), xlim=range(df$theta_star)) +
+  geom_hline(yintercept = c(0.025, 0.975), color="red", linetype=2) +
+  geom_vline(xintercept = quantile(df$theta_star, c(0.025, 0.975)), color="red", linetype=2)
+```
+
+Numericamente, la stima puntuale è la media delle repliche, e l'intervallo è dato dalla funzione `quantile()`:
+
+```{r}
+mean(df$theta_star)
+quantile(df$theta_star, c(0.025, 0.975))
+```
+
+
+# Libreria `boot`
+
+La libreria `boot` automatizza il procedimento. La funzione `boot()` richiede i dati, il numero di repliche `R` e una funzione `statistic` che riceve **due argomenti**: i dati originali e un vettore di indici `i`, estratti con reinserimento. La funzione deve restituire la statistica calcolata sul sottoinsieme `sample[i]`.
+
+```{r}
+set.seed(1)
+data.b <- boot(
+  x,
+  statistic = \(sample, i) median(sample[i]),
+  R = B
+)
+
+```
+
+Per capire come funziona l'indicizzazione: un vettore di indici estratti con reinserimento (quindi con possibili ripetizioni) seleziona un ricampionamento del vettore originale.
+
+```{r}
+v <- LETTERS[1:10]
+i <- sample(1:10, replace=TRUE)
+v
+i
+v[i]
+```
+
+Stampando l'oggetto restituito da `boot()` otteniamo un riepilogo con il valore della statistica sul campione originale (`original`), la stima del **bias** e l'**errore standard**:
+
+```{r}
+data.b
+```
+
+Gli stessi valori si possono ricalcolare a mano: `data.b$t0` contiene la statistica sul campione originale, `data.b$t` le $R$ repliche. Il bias è la differenza tra la media delle repliche e $t_0$, l'errore standard è la deviazione standard delle repliche.
+
+```{r}
+median(x)
+mean(data.b$t)
+mean(data.b$t) - data.b$t0
+sd(data.b$t)
+```
+
+La stima del bias dipende dal numero di repliche $R$. Per verificarlo, ripetiamo il bootstrap con valori crescenti di $R$ e salviamo il bias in una tabella (inizializzata con una riga di `NA`, poi rimossa con `na.omit()`):
+
+```{r}
+bias <- tibble(R=NA, bias=NA)
+
+for (r in c(10, 50, 100, 500, 1000, 5000, 10000, 50000, 100000, 500000)) {
+  d.b <- boot(
+    x, statistic=\(s, i) median(s[i]), R=r
+  )
+  b <- mean(d.b$t) - d.b$t0
+  bias <- bias %>% add_row(R=r, bias=b)
+}
+bias <- na.omit(bias)
+```
+
+Al crescere di $R$ la stima del bias si stabilizza (si noti la scala logaritmica sull'asse $x$):
+
+```{r}
+bias %>%
+  ggplot(aes(x=R, y=bias)) +
+  geom_line() +
+  geom_point() +
+  scale_x_log10()
+```
+
+Infine, la funzione `boot.ci()` calcola l'intervallo di confidenza. Con `type="perc"` si usa il metodo dei percentili, lo stesso che abbiamo applicato a mano nella sezione precedente:
+
+```{r}
+boot.ci(data.b, conf=0.95, type="perc")
+```
+
+
+## Regressione lineare
+
+Il bootstrap si applica anche ai parametri di un modello di regressione. Generiamo dati sintetici secondo il modello $y = a + bx + \varepsilon$, con $a=10$, $b=2$ e $\varepsilon \sim \mathcal{N}(0, 2^2)$:
+
+```{r}
+set.seed(1)
+k <- c(a=10, b=2)
+N <- 100
+data <- tibble(
+  x = runif(N, 0, 10),
+  y = k["a"] + k["b"] * x + rnorm(N, sd=2)
+)
+
+data %>%
+  ggplot(aes(x=x, y=y)) +
+  geom_point() +
+  geom_smooth(method="lm", formula=y~x)
+```
+
+Come riferimento, i coefficienti stimati da `lm()` sono:
+
+```{r}
+lm(y~x, data=data) %>% coef()
+```
+
+Definiamo la funzione statistica: costruiamo la matrice di progetto $A = [\mathbf{1}, \mathbf{x}]$ e otteniamo i coefficienti ai minimi quadrati come $A^+\mathbf{y}$, dove $A^+$ è la pseudo-inversa di $A$ (calcolata con `MASS::ginv()`). Il risultato deve coincidere con quello di `lm()`.
+
+```{r}
+linfit <- function(data) {
+  N <- length(data$x)
+  A <- matrix(c(rep(1, N), data$x), nrow=N, byrow=F)
+  res <- as.vector(MASS::ginv(A) %*% data$y)
+  names(res) <- c("a", "b")
+  return(res)
+}
+linfit(data)
+```
+
+In questo caso i dati sono una tabella, quindi ricampioniamo le **righe** con `sample[i,]`. Dato che la statistica restituisce due valori, `data.b$t` ha due colonne, una per parametro:
+
+```{r}
+data.b <- boot(
+  data,
+  statistic=\(sample, i) linfit(sample[i,]),
+  R=10000
+)
+data.b
+```
+
+L'argomento `index` di `boot.ci()` seleziona il parametro di cui calcolare l'intervallo di confidenza (1 per $a$, 2 per $b$):
+
+```{r}
+boot.ci(data.b, type="perc", index=1)
+boot.ci(data.b, type="perc", index=2)
+```
+
+
+## Regressione non-lineare
+
+Il vantaggio del bootstrap è evidente per i modelli non-lineari, per i quali non è sempre semplice ricavare analiticamente gli intervalli di confidenza dei parametri. Consideriamo un modello a tratti: costante pari a `bias` per $t < t_0$, parabolico per $t \geq t_0$. I coefficienti $b$ e $c$ della parabola sono scelti in modo che il vertice cada in $(t_0, \mathrm{bias})$, così che la funzione sia continua e con derivata continua nel punto di contatto $t_0$.
+
+```{r}
+f <- function(t, t0=0, bias=0, a=1) {
+  b <- -2*a*t0
+  c <- bias + a*t0^2
+  y <- a * t^2 +b*t + c
+  return(ifelse(t < t0, bias, y))
+}
+```
+
+Generiamo i dati con $t_0 = 2.5$, $\mathrm{bias} = 3$ e $a = 1$, aggiungendo rumore normale. In rosso è riportato il modello nominale:
+
+```{r}
+set.seed(1)
+contact <- 2.5
+bias <- 3
+a <- 1
+
+data <- tibble(
+  t = seq(-10, 10, length.out=100),
+  yn = f(t, contact, bias, a),
+  y = yn + rnorm(length(t), sd=2)
+)
+
+data %>%
+  ggplot(aes(x=t, y=y)) +
+  geom_point() +
+  geom_line(aes(y=yn), color="red")
+```
+
+La regressione non-lineare ai minimi quadrati si effettua con `nls()`, che richiede dei valori iniziali per i parametri da stimare:
+
+```{r}
+fit <- nls(
+  y~f(t, t0, b, a),
+  start = list(t0=0, b=0, a=1),
+  data=data
+)
+summary(fit)
+```
+
+Incapsuliamo il fit in una funzione statistica che restituisce i tre coefficienti stimati:
+
+```{r}
+stats <- function(data) {
+  fit <- nls(
+    y~f(t, t0, b, a),
+    start = list(t0=0, b=0, a=1),
+    data=data
+  )
+  return(coef(fit))
+}
+
+stats(data)
+```
+
+Infine eseguiamo il bootstrap e calcoliamo gli intervalli di confidenza per ciascuno dei tre parametri ($t_0$, bias e $a$):
+
+```{r}
+data.b <- boot(
+  data,
+  statistic = \(sample, i) stats(sample[i,]),
+  R = 10000
+)
+
+boot.ci(data.b, type="perc", index=1)
+boot.ci(data.b, type="perc", index=2)
+boot.ci(data.b, type="perc", index=3)
+```
