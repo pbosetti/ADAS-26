@@ -1,0 +1,255 @@
+---
+title: "Prova in itinere"
+subtitle: "Svolgimento domande"
+format:
+  pdf:
+    papersize: a4
+---
+
+```{r}
+#| echo: false
+#| include: false
+library(tidyverse)
+library(adas.utils)
+```
+
+# Domanda 1
+
+Il file `diet.dat`, già disponibile nella cartella di lavoro dell'istanza R Moodle, contiene dati sul tempo di coagulazione `cTime` del sangue di ratti nutriti con 4 differenti diete `diet`.
+
+Verificare se la dieta ha un effetto significativo sul tempo di coagulazione del sangue: il codice deve mostrare **esclusivamente** la tabella ANOVA corretta.
+
+Indagare le singole differenze mediante un test di Tukey e caricare il grafico nel modulo **Restituzione grafici**.
+
+**Attenzione**: 
+
+* Nell'istanza Moodle, il file `diet.dat` è già disponibile nella cartella di lavoro.
+* Per caricare i file in Positron sul PC in uso il file `diet.dat` è disponibile via `adas.utils::examples_url()`:
+
+```r
+adas.utils::examples_url("diet.dat", show_col_types=FALSE) %>% read.table(header=TRUE)
+```
+
+## Risposta
+
+
+```{r}
+df <- read.table(examples_url("diet.dat"), header=T)
+
+df %>% 
+  lm(cTime~diet, data=.) %>% 
+  anova()
+```
+
+```{r}
+df %>% 
+  adas.utils::ggTukey(cTime~diet)
+```
+
+
+# Domanda 2
+
+Creare una funzione (con nome e argomenti come da box precompilato) che restituisce le prime `n` **massime differenze assolute** di un vettore di osservazioni (ricordarsi il criterio di Chauvenet e il test di Grubb). Per *prime `n`* si intende le più grandi.
+
+## Risposta
+
+Le differenze assolute sono definite come:
+
+$$
+d_i = \frac{|y_i - \bar{y}|}{S_y}
+$$
+
+
+```{r}
+max_diff <- function(x, n=2) {
+  d <- abs(x - mean(x))/sd(x)
+  return(sort(d, decreasing=T)[1:n])
+}
+```
+
+```{r}
+set.seed(0)
+max_diff(rnorm(10), 4)
+```
+
+```{r}
+max_diff(c(1, 2, 10:15, 33))
+```
+
+
+# Domanda 3
+
+Il data frame `mtcars` (già disponibile in R) riporta nella colonna `qsec` il tempo di accelerazione da fermo sul quarto di miglio. Identificare e rimuovere un eventuale anomalia e ritornare solamente la colonna risultante **come vettore**, ordinato in ordine decrescente.
+
+Per identificare l'anomalia, assumere una soglia del *p-value* pari al 5%.
+
+**ATTENZIONE**: la libreria `outliers` deve essere caricata esplicitamente.
+
+## Risposta
+
+
+```{r}
+library(outliers)
+gt <- mtcars %>% pull(qsec) %>% grubbs.test()
+
+mtcars %>% 
+  mutate(diff = abs(qsec - mean(qsec))/sd(qsec)) %>%
+  filter(diff < max(diff)) %>% 
+  arrange(desc(qsec)) %>% 
+  pull(qsec)
+
+
+```
+
+
+# Domanda 4
+
+Considerando il data frame `mtcars` realizzare un grafico con ggplot che abbia in ascissa la massa `wt` e in ordinata due serie, una per i valori di consumo `mpg` e una per i valori di accelerazione `qsec`.
+
+* Nel box sottostante, inserire il codice che produce la tabella in formato tidy
+* Sul PC, in Poistron, usare lo stesso codice per creare un grafico con ggplot che riporti le due serie `qsec` e `mpg` come due grafici con punti e linee, e caricare il grafico ottenuto in **Restituzione grafici**.
+
+**Suggerimento**: usare `pivot_longer()`.
+
+## Risposta
+
+
+```{r}
+mtcars %>% 
+  arrange(wt) %>% 
+  select(wt, qsec, mpg) %>% 
+  pivot_longer(-wt) 
+```
+
+```{r}
+mtcars %>% 
+  arrange(wt) %>% 
+  select(wt, qsec, mpg) %>% 
+  pivot_longer(-wt) %>%
+  ggplot(aes(x=wt, y=value, color=name)) + 
+  geom_line() + 
+  geom_point()
+```
+
+# Domanda 5
+
+Caricare il file `dataset.csv` disponibile nella directory di lavoro dell'interprete R di Moodle.
+
+Il dataset contiene una serie di misure della variabile `f` in funzione del tempo `t`. Identificare il modello lineare più adatto per la regressione.
+
+Usare il modello per predire il valore di `f` quando `t` vale 15 e 30. Il codice deve stampare **esclusivamente** una tabella con il due valori predetti e i corrispondenti limiti della banda di confidenza al 95%, così come ottenuti da `predict()`.
+
+Produrre anche un grafico che riporti assieme, confrontandoli, i residui per un modello lineare di primo grado e per il modello da voi adottato, se differente. I residui devono essere visualizzati come punti e le due serie identificate con colori differenti.
+
+***NOTA***: sul PC in uso il file `dataset.csv` può essere scaricato qui: <https://esamionline.unitn.it/course/view.php?id=2954>
+
+## Risposta
+
+
+```{r}
+df <- read_csv("dataset.csv", show_col_types = FALSE)
+```
+
+```{r}
+df %>% 
+  ggplot(aes(x=t, y=f)) +
+  geom_point()
+```
+
+
+```{r}
+df.lm <- lm(f~poly(t, 3), data=df) 
+summary(df.lm)
+df %>% 
+  add_predictions(df.lm) %>%
+  ggplot(aes(x=t, y=f)) +
+  geom_point() +
+  geom_line(aes(y=pred), color="red")
+```
+
+```{r}
+df.lm <- lm(f~t + I(t^0.5)-1, data=df) 
+summary(df.lm)
+df %>% 
+  add_predictions(df.lm) %>%
+  ggplot(aes(x=t, y=f)) +
+  geom_point() +
+  geom_line(aes(y=pred), color="red")
+```
+
+
+
+```{r}
+df.lm <- lm(f~t + I(t^0.5) - 1, data=df) 
+predict(df.lm, tibble(t=c(15, 20)), interval="conf")
+```
+
+
+
+```{r}
+df %>% 
+  add_residuals(lm(f~t, data=.), var="lineare") %>%
+  add_residuals(lm(f~poly(t,3), data=.), var="scelto") %>%
+  pivot_longer(cols=c(lineare, scelto), names_to="model", values_to="residuals") %>%
+  ggplot(aes(x=t, y=residuals, color=model)) +
+  geom_point()
+```
+
+
+# Domanda 6
+
+A partire dal data frame `mtcars` creare una tabella sommario che, raggruppando i dati per cilindrata e per tipo di trasmissione, riporti:
+
+* il peso medio
+* il tempo sul miglio massimo
+* il consumo minimo 
+
+Il tipo di trasmissione deve essere tradotto: `0` diventa `"manual"`, `1` diventa `"auto"`.
+
+L'ouput deve essere una tibble di 6 righe e 5 colonne; i nomi delle colonne devono restare gli stessi di `mtcars`. **NON USARE l'opzione `.by=`)**
+
+**SUGGERIMENTO**: ricordare che il codice NON deve ritornare errori e nemmeno warning. Se si usa la funzione `summarise()`, passare il parametro `.groups="drop"` per evitare un warning.
+
+## Risposta
+
+
+```{r}
+mtcars %>% 
+  mutate(am = ifelse(am==0, "manual", "auto")) %>% 
+  group_by(cyl, am) %>% 
+  summarise(
+    wt = mean(wt),
+    qsec = max(qsec),
+    mpg = min(mpg),
+    .groups="drop"
+  )
+```
+
+
+
+# Domanda 7
+
+Considerare il data frame `mtcars` già disponibile in R. Vogliamo testare l'ipotesi che il consumo delle vetture (colonna `mpg`) dipenda dal tipo di trasmissione, automatica o manuale (colonna `am`).
+
+Effettuare il test opportuno e ritornare **esclusivamente** il *p-value*. L'output deve cioè essere del tipo:
+
+```
+[1] 0.012345678
+```
+
+**ATTENZIONE**: assumere un livello di confidenza pari al 5%
+
+## Risposta
+
+
+```{r}
+vt <- mtcars %>% 
+  select(am, mpg) %>% 
+  var.test(mpg~am, data=.)
+
+tt <- mtcars %>% 
+  select(am, mpg) %>% 
+  t.test(mpg~am, data=., var.equal = vt$p.value > 0.05)
+
+tt$p.value
+```
