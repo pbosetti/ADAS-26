@@ -2,6 +2,7 @@
 title: "Lezione 3"
 subtitle: "Bootstrap"
 author: "Paolo Bosetti"
+date: today
 lang: IT-it
 format:
   pdf:
@@ -159,6 +160,16 @@ boot.ci(data.b, conf=0.95, type="perc")
 ```
 
 
+::: {.callout-tip}
+
+### Esercizio
+
+Costruire un campione di 100 osservazioni con distribuzione $X^2_10$. Calcolare mediante bootstrap l'intervallo di confidenza per la statistica **primo quartile**.
+
+:::
+
+
+
 ## Regressione lineare
 
 Il bootstrap si applica anche ai parametri di un modello di regressione. Generiamo dati sintetici secondo il modello $y = a + bx + \varepsilon$, con $a=10$, $b=2$ e $\varepsilon \sim \mathcal{N}(0, 2^2)$:
@@ -217,6 +228,8 @@ boot.ci(data.b, type="perc", index=2)
 
 
 ## Regressione non-lineare
+
+### Calcolo degli intervalli di confidenza sui parametri
 
 Il vantaggio del bootstrap è evidente per i modelli non-lineari, per i quali non è sempre semplice ricavare analiticamente gli intervalli di confidenza dei parametri. Consideriamo un modello a tratti: costante pari a `bias` per $t < t_0$, parabolico per $t \geq t_0$. I coefficienti $b$ e $c$ della parabola sono scelti in modo che il vertice cada in $(t_0, \mathrm{bias})$, così che la funzione sia continua e con derivata continua nel punto di contatto $t_0$.
 
@@ -289,3 +302,206 @@ boot.ci(data.b, type="perc", index=1)
 boot.ci(data.b, type="perc", index=2)
 boot.ci(data.b, type="perc", index=3)
 ```
+
+
+### Dagli intervalli di confidenza alla bands di confidenza
+
+Il prossimo passo è calcolare la **banda di confidenza** a partire dagli intervalli di confidenza sui parametri. Per farlo, dobbiamo valutre la funzione regredita `f(t, to, bias, a)` per ogni ascissa `t` e per ogni possibile combinazione dei limidi di confidenza per i tre parametri. Dato che abbiamo tre parametri con du valori ciascuno avremo un totale di $2^3=8$ possibili combinazioni per ogni valore dell'ascissa `t`: il minimo e il massimo tra questi 8 valori rappresentano la larghezza locale della banda di incertezza. In breve, quindi, l'algoritmo è:
+
+1. calcolo tutte le possibili combinazioni degli itervalli di confidenza sui parametri
+2. per ogni valore di `t` valuto `f()` su ciascuna delle combinazioni
+3. registro il massimo e il minimo della `f()` in queste $2^3$ combinazioni
+
+Ricordiamo che per costruire la griglie delle combinazioni si usa la funzione `expand.grid`, che può accettare come argimento una lista nominata di intervalli. Quindi:
+
+```{r}
+ci <- list(
+  t0 = boot.ci(data.b, type="perc", index=1)$percent[4:5],
+  bias = boot.ci(data.b, type="perc", index=2)$percent[4:5],
+  a = boot.ci(data.b, type="perc", index=3)$percent[4:5]
+)
+
+expand.grid(ci)
+```
+
+Per una data ascissa, ad es. 6, possiamo valutare la `f()` per ogni combinazione mediante un `mutate`, aggiungendo la colonna `yv`:
+
+```{r}
+expand.grid(ci) %>% 
+  mutate(yv = f(6, t0=t0, bias=bias, a=a))
+```
+
+Possiamo rendere questo approccio *generico*, cioè valido per una qualsiasi ascissa `t`, incapsulandolo in una funzione:
+
+```{r}
+f_var <- function(t, f, ci) {
+  df <- expand.grid(ci) %>% 
+    mutate(yv = f(t, t0=t0, bias=bias, a=a))
+  l <- list(
+    min = min(df$yv), 
+    max = max(df$yv)
+  )
+  return(l)
+}
+f_var(6, f, ci)
+```
+
+Ora non ci resta che applicare `f_var()` a tutte le righe della tabella originale.
+
+
+::: {.callout-warning}
+
+Dato che `f_var()` non è vetrializzata, dobbiamo ricorrere ad una mappa `map`.
+
+:::
+
+
+```{r}
+data %>% 
+  mutate(
+    ci = map(t, \(x) f_var(x, f, ci))
+  ) 
+```
+
+
+::: {.callout-note}
+
+Dato che `f_var()` restituisce una lista, la colonna `data$ci` contiene effettivamente una lista di liste, ciascuna con due elementi, `min` e `max`.
+
+Del resto, non è possibile usare `map_dbl` al posto di `map`, perché `mutate` deve necessariemante restituire un vettore, non una matrice con due colonne.
+
+È però possibile *esplodere* la lista di liste in due colonne contenenti gli elementi delle liste originali mediante la funzione apposita `unnest_wider()`.
+
+:::
+
+
+```{r}
+data %>% 
+  mutate(
+    ci = map(t, \(x) f_var(x, f, ci))
+  ) %>% 
+  unnest_wider(ci)
+```
+
+Siamo quindi arrivati al risultato desiderato: per ogni riga abbiamo ora le due colonne `min` e `max` che definiscono la **banda di confidenza**. Possiamo metterla in grafico come `geom_ribbon()`:
+
+```{r}
+data %>% 
+  mutate(
+    ci = map(t, \(x) f_var(x, f, ci))
+  ) %>% 
+  unnest_wider(ci) %>% 
+  ggplot(aes(x=t)) + 
+  geom_ribbon(aes(ymin=min, ymax=max), alpha=1/3) +
+  geom_point(aes(y=y)) + 
+  geom_line(aes(y=yn), color="red")
+
+```
+
+
+Esiste anche un secondo metodo, più elegante, per ottenere lo stesso risultato.
+
+Di fatto, a noi serve inizialmente modificare `data` trasformando ogni riga in $2^3$ righe, ciascuna con gli stessi valori di `t`, `yn` e `y`, ma le varie combinazioni dei parametri e il relativo valore di `yv`. Da qui, basta poi applicare un `summarise()` per tenere solo massimo e minimo di `yv` per ogni valore di `t`.
+
+Ci serve quindi una funzione opposta a `summarise()`, cioè una funzione che **espande** ogni riga in più righe (mentre `summarise()` condensa ogni gruppo di righe in un unico valore secondo una funzione statistica). Tale funzione è `dplyr::reframe()`. Vediamo come funziona:
+
+```{r}
+data %>%
+  rowwise() %>% 
+  reframe(
+    t = t,
+    yn = yn,
+    y = y,
+    expand.grid(ci) %>% 
+      mutate(yv = f(t, t0=t0, bias=bias, a=a))
+  ) 
+```
+
+
+::: {.callout-note}
+
+In questo caso, `reframe()` deve espandere *ogni riga, singolarmente*. Per questo motivo usiamo `rowwise()` che, come già visto, segnala a ogni funzione `dplyr` successiva di operare *riga per riga*, anziché operare in maniera vettoriale su un'intera colonna.
+
+:::
+
+In grafico:
+
+```{r}
+data %>%
+  rowwise() %>% 
+  reframe(
+    t = t,
+    yn = yn,
+    y = y,
+    expand.grid(ci) %>% 
+      mutate(yv = f(t, t0=t0, bias=bias, a=a))
+  ) %>% 
+  ggplot(aes(x=t)) + 
+  geom_point(aes(y=yv))
+```
+
+Come vediamo, per ogni ascissa abbiamo calcolato gli 8 punti che corrispondono alle $2^3$ combinazioni degli intervalli di confidenza sui tre parametri.
+
+Non resta ora che applicare `summarise()` per tenere solo il massimo e il minimo, raggruppando per gli stessi valori di `t` (con l'argomento `.by = t`):
+
+```{r}
+data %>%
+  rowwise() %>%
+  reframe(
+    t = t,
+    yn = yn,
+    y = y,
+    expand.grid(ci) %>% 
+      mutate(yv = f(t, t0=t0, bias=bias, a=a))
+  ) %>% 
+  summarise(
+    t = first(t),
+    yn = first(yn),
+    y = first(y),
+    ymin = min(yv),
+    ymax = max(yv),
+    .by = t
+  ) 
+```
+
+In un colpo solo, aggiungiamo anche il grafico:
+
+```{r}
+data %>%
+  rowwise() %>%             # lavoro per righe
+  reframe(                  # 2. espando ogni riga nelle 8 possibili combiazioni
+    t = t,
+    yn = yn,
+    y = y,
+    expand.grid(ci) %>%     # 1. calcolo le possibili combinazioni
+      mutate(yv = f(t, t0=t0, bias=bias, a=a))
+  ) %>% 
+  summarise(                # 3. tengo solo minimo e massimo
+    t = first(t),
+    yn = first(yn),
+    y = first(y),
+    ymin = min(yv),
+    ymax = max(yv),
+    .by = t
+  ) %>%
+  ggplot(aes(x=t)) + 
+  geom_ribbon(aes(ymin=ymin, ymax=ymax), alpha=1/3) +
+  geom_point(aes(y=y)) + 
+  geom_line(aes(y=yn), color="red")
+```
+
+
+::: {.callout-note}
+
+Questo secondo metodo è più elegante perché non richiede la creazione di variabili intermedie, ed è quindi più efficiente in termini di memoria occupata. È anche più facile da leggere, dato che corrisponde quasi esattamente alla descrizione verbale dell'algoritmo data più sopra (vedi i commenti).
+
+:::
+
+
+
+::: {.callout-tip}
+### Esercizio
+
+Creare una tabella dati con correlazione lineare di primo grado tra `x` e `y` (con disturbo), effettuare una regressione con `lm()`, calcolare gli intervalli di confidenza al 99% sui due coefficienti, e ripetere quanto sopra per calcolare e plottare la banda di confidenza.
+
+:::
