@@ -1,0 +1,124 @@
+---
+title: "Lezione 4"
+subtitle: "Misura, taratura e incertezza"
+author: "Paolo Bosetti"
+date: today
+lang: IT-it
+format:
+  pdf:
+    toc: true
+    number-sections: true
+    papersize: "A4"
+    # Quanto segue fa in modo che i blocchi di codice lunghi vengano spezzati
+    # su più linee (trucco LaTeX)
+    include-in-header:
+      text: |
+        \usepackage{fvextra}
+        \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+        \RecustomVerbatimEnvironment{verbatim}{Verbatim}{breaklines,breakanywhere}
+  html:
+    toc: true # ToC = Table of contents
+    number-sections: true
+---
+
+```{r setup}
+#| include: false
+#| warning: false
+# La linea qui sopra nasconde questo blocco di codice nel documento finale
+library(tidyverse)
+library(adas.utils)
+# Imposto la larghezza max in caratteri dell'output di testo dei blocchi di
+# codice a 70 caratteri:
+options(width = 70)
+```
+
+
+
+# Taratura statica di un dinamometro a mensola
+
+Consideriamo L'esempio visto [a lezione](https://paolobosetti.quarto.pub/slides/ADAS/5-misura.html#/esempio-dinamometro-a-mensola).
+
+Supponiamo di effettuare una operazione di taratura in condizioni di temperatura **non costante**, e supponiamo che la temperatura sia un **ingresso modificante** della caratteristica statica, agendo principalmente sul *gauge factor* dell'estensimetro. La caratteristica statica è:
+
+$$
+V=3/2GV_i\frac{lG_F}{EBH^2}F+V_0 = V_0+ KF
+$$
+
+Definiamo anzitutto una lista dei parametri che possiamo considerare costanti (tutti eccetto $G_F$), con i loro valori.
+
+```{r}
+parameters <- list(
+  G = 10,   # NA
+  Vi = 12,  # mV
+  l = 300,  # mm
+  B = 20,   # mm
+  H = 2,    # mm
+  E = 200,  # GPa
+  V0 = 1    # mV
+)
+```
+
+Il *gauge factor* è invece una funzione lineare della temperatura (perché la resistenza elettrica dell'estensimetro è funzione lineare della temperatura):
+
+```{r}
+Gf <- function(Temp, G0=0.05, T0=20, k=0.01) G0 + k*(Temp - T0)
+```
+
+Il coefficiente angolare della caratteristica statica $K$ è quindi:
+
+```{r}
+K <- function(Temp, params) with(params, 3/2*G*Vi*(l*Gf(Temp))/ (E*B*H^2))
+```
+
+
+::: {.callout-warning}
+A lezione, la formula era stata erroneamente scritta come `3/2*G + Vi*(l*Gf(Temp))/(E*B*H^2)` (notare il `+` al posto di `*` tra `G` e `Vi`).
+:::
+
+
+Si noti che `with(params, ...)` consente di abbreviare l'espressione analitica evitando di ripetere `params$` davanti al nome di ciascun elemento della lista `parameters`.
+
+Per ultimo definiamo l'andamento della temperatura: supponiamo che sia costante e pari a 20° (`T0`) fino a 4h (`t0`), e poi incrementi esponenzialmente fino a 25° (`T0 + dT`) con costante di tempo pari a 2h (`tau`):
+
+```{r}
+temp <- function(time, t0=4, T0=20, dT=5, tau=2) {
+  ifelse(
+    time < t0,
+    T0,
+    T0 + dT * (1 - exp(-(time-t0)/tau))
+  )
+}
+
+ggplot() +
+  geom_function(fun = temp, xlim=c(0,20)) +
+  labs(x="Time (h)", y="Temperature (°C)")
+```
+
+La **caratteristica statica** completa a questo punto possiamo assemblarla a partire dalle funzioni sopra dichiarate:
+
+```{r}
+model <- function(F, Temp, params) params$V0 + K(Temp, params)*F
+```
+
+Finalmente possiamo **simulare l'esperimento**, generando i dati secondo `model()`, `Gf()` e `temp()` per una sequenza di tempi e di forze applicate:
+
+```{r}
+set.seed(120)
+N <- 50
+duration <- 8 # durata totale in ore
+
+data <- tibble(
+  t = seq(0, duration, length.out=N),
+  Temp  = temp(t),                        # temperatura
+  Gf    = Gf(Temp),                       # Gauge factor, dipende dalla temperatura
+  Force = seq(10, 100, length.out=N),     # Forza applicata
+  Vn    = model(Force, Temp, parameters), # Modello nominale
+  V     = Vn + rnorm(N, 0, 0.5)           # Modello nominale + disturbo
+) 
+
+# In grafico:
+data %>% 
+  ggplot(aes(x=Force, y=V)) + 
+  geom_point() + 
+  labs(x="Force (N)", y="Voltage (mV)")
+```
