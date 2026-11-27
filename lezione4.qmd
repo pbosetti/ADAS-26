@@ -27,6 +27,7 @@ format:
 # La linea qui sopra nasconde questo blocco di codice nel documento finale
 library(tidyverse)
 library(adas.utils)
+library(PearsonDS)
 # Imposto la larghezza max in caratteri dell'output di testo dei blocchi di
 # codice a 70 caratteri:
 options(width = 70)
@@ -62,12 +63,14 @@ Il *gauge factor* è invece una funzione lineare della temperatura (perché la r
 
 ```{r}
 Gf <- function(Temp, G0=0.05, T0=20, k=0.01) G0 + k*(Temp - T0)
+Gf(20)
 ```
 
 Il coefficiente angolare della caratteristica statica $K$ è quindi:
 
 ```{r}
 K <- function(Temp, params) with(params, 3/2*G*Vi*(l*Gf(Temp))/ (E*B*H^2))
+K(22, parameters)
 ```
 
 
@@ -100,6 +103,8 @@ La **caratteristica statica** completa a questo punto possiamo assemblarla a par
 model <- function(F, Temp, params) params$V0 + K(Temp, params)*F
 ```
 
+## Taratura senza casualizzazione
+
 Finalmente possiamo **simulare l'esperimento**, generando i dati secondo `model()`, `Gf()` e `temp()` per una sequenza di tempi e di forze applicate:
 
 ```{r}
@@ -118,7 +123,354 @@ data <- tibble(
 
 # In grafico:
 data %>% 
-  ggplot(aes(x=Force, y=V)) + 
-  geom_point() + 
+  ggplot(aes(x=t)) + 
+  # geom_line(aes(y=Vn), color="red") + 
+  geom_point(aes(y=V)) + 
   labs(x="Force (N)", y="Voltage (mV)")
+```
+
+
+A questo punto, l'addetto alla taratura (che non sa dell'effetto della temperatura, né della sua variazione!) prova a regredire la curva di taratura col modello lineare che si aspetta dalla fisica del problema:
+
+```{r}
+data.lm <- lm(V~Force, data=data)
+summary(data.lm)
+```
+
+Successivamente verifichiamo la regressione e i residui:
+
+```{r}
+data <- data %>% 
+  add_predictions(data.lm) %>% 
+  add_residuals(data.lm)
+
+data %>% 
+  ggplot(aes(x=Force)) + 
+  geom_point(aes(y=V)) + 
+  geom_line(aes(y=pred), color="red")
+
+data %>% 
+  ggplot(aes(x=Force, y=resid)) + 
+  geom_point()
+```
+
+È evidente un pattern a V dei residui, che denuncia l'inadeguatezza (sotto-adattamento) del modello nel regredire i dati. L'operatore passa quindi a un modello lineare di grado 6 con un polinomio ortigonale per poi studiare la significatività dei coefficienti:
+
+```{r}
+data.lm <- lm(V~poly(Force, 6, raw=F), data=data)
+summary(data.lm)
+```
+
+Osservando la colonna dei p-value, decide di arrestarsi al grado 4, questa volta usando polinomi grezzi in modo da ottenere i coefficienti effettivi del polinomio in forma canonica $V=c_0 + c_1 F + \dots + c_4 F^4$:
+
+```{r}
+data.lm <- lm(V~poly(Force, 4), data=data)
+
+data <- data %>% 
+  add_predictions(data.lm) %>% 
+  add_residuals(data.lm)
+
+data %>% 
+  ggplot(aes(x=Force)) + 
+  geom_point(aes(y=V)) + 
+  geom_line(aes(y=pred), color="red")
+
+data %>% 
+  ggplot(aes(x=Force, y=resid)) + 
+  geom_point()
+```
+
+I residui non mostrano pattern, quindi l'addetto accetta il modello con i coefficienti:
+
+```{r}
+coefficients(data.lm)
+```
+
+È però evidente che, quale che sia la regressione, la curva di taratura così definita è sbagliata. Supponiamo infatti di ripetere le stesse misure una seconda volta **però a temperatura costante e pari a 20°C**:
+
+```{r}
+data %>% 
+  mutate(run = "taratura", .before=t) %>% 
+  bind_rows(
+    tibble(
+      run="verifica",
+      t = seq(0, duration, length.out=N),
+      Temp = 20,
+      Gf = Gf(Temp),
+      Force = seq(0, 100, length.out=N),
+      Vn = model(Force, Temp, parameters),
+      V = Vn + rnorm(N, 0, 0.5)
+    )
+  ) %>% 
+  ggplot(aes(x=Force, y=V)) + 
+  geom_point(aes(color=run)) + 
+  geom_path(aes(y=pred), color="red")
+```
+
+Il modello risulta cioè affidabile fino a circa 50 N, cioè al valore di forza massimo raggiunto nelle prime 4 ore della calibrazione.
+
+## Taratura con casualizzazione della sequenza operativa
+
+Supponiamo di voler testare un generico processo su una data sequenza di valori. La procedura tipica per casualizzare la sequenza è affiancare al vettore (o matrice) delle condizioni una colonna con altrettanti numeri casuali ottenuti per campionamento, e poi ordinare la sequenza operativa secondo questa nuova colonna. Ad esempio:
+
+```{r}
+tibble(
+  Force = seq(10, 100, length.out=N),
+  idx = sample(1:N)
+) %>% 
+  arrange(idx)
+```
+
+Nel nostro caso, possiamo riprendere la tabella `data`, ricampionare (senza reinserimento!) la colonna `Force`, e ricalcolare le colonne `Vn` e `V`, riapplicando il modello. In codice:
+
+```{r}
+set.seed(120)
+data <- data %>% 
+  mutate(
+    Force = sample(Force),
+    Vn = model(Force, Temp, parameters),
+    V = Vn + rnorm(N, 0, 0.5)
+  )
+```
+
+Le misure ottenute sono quindi:
+
+```{r}
+data %>% 
+  ggplot(aes(x=Force, y=V)) + 
+  geom_point()
+```
+
+Si nota come la varianza delle osservazioni aumenta con il carico. Realizziamo una regressione di primo grado:
+
+```{r}
+data.lm <- lm(V~Force, data=data)
+summary(data.lm)
+```
+
+
+Notiamo che l'intercetta non è significativa, quindi riformuliamo il modello **togliendo l'intercetta**:
+
+```{r}
+data.lm <- lm(V~Force - 1, data=data)
+summary(data.lm)
+```
+
+Il modello non mostra più un pattern, ma una tendenza all'aumentare la varianza dei residui:
+
+```{r}
+data %>% 
+  add_residuals(data.lm) %>% 
+  ggplot(aes(x=Force, y=resid)) + 
+  geom_point()
+
+data %>% 
+  add_predictions(data.lm) %>% 
+  ggplot(aes(x=Force)) + 
+  geom_point(aes(y=V)) + 
+  geom_line(aes(y=pred), color="red")
+```
+
+In questi casi, è in genere opportuno osservare i residui **in funzione del tempo**, perché questo aiuta a capire se ci sono effetti *ignoti e incontrollati* che influiscono sull'esperimento all'avanzare del tempo. Si nota allora che dopo 4 ore i residui cominciano ad aumentare, mentre fino a 4 ore non ci sono pattern né variazioni:
+
+```{r}
+data %>% 
+  add_residuals(data.lm) %>% 
+  ggplot(aes(x=t, y=resid)) +
+  geom_point()
+```
+
+
+Se coloriamo i punti per il tempo di acquisizione è evidente che limitandoci ai dati raccolti entro le 4 ore i punti sono molto più alineati:
+
+```{r}
+data %>% 
+  add_predictions(data.lm) %>% 
+  ggplot(aes(x=Force)) + 
+  geom_point(aes(y=V, color=t)) + 
+  geom_line(aes(y=pred), color="red") +
+  scale_color_viridis_c()
+```
+
+::: callout-note
+Si noti l'uso di `scale_color_viridis_c()`: questa funzione usa la scala colore chiamata *viridis* su una variabile continua (`_c`), che ha il vantaggio di essere ben leggibile anche se stampata in bianco e nero o se osservata da chi è affetto dai tipi più comuni di cecità al colore.
+:::
+
+Quindi possiamo decidere di effettuare la regressione scartando tutti i dati raccolti dopo le 4 ore:
+
+```{r}
+data.f <- data %>% 
+  filter(t <= 4)
+
+data.f.lm <- lm(V~Force, data=data.f)
+summary(data.f.lm)
+```
+
+Si noti che in questo caso, come atteso dalla teoria, l'intercetta **non è più trascurabile**.
+
+Finalmente:
+
+```{r}
+data.f <- add_residuals(data.f, data.f.lm)
+data.f <- add_predictions(data.f, data.f.lm)
+
+data.f %>% 
+  ggplot(aes(x=Force)) + 
+  geom_point(aes(y=V)) + 
+  geom_line(aes(y=pred), color="red")
+
+data.f %>% 
+  ggplot(aes(x=Force, y=resid)) + 
+  geom_point()
+```
+
+::: callout-tip
+**Esercizio**: ricavare la funzione che rappresenta l'inversa della caratteristica statica.
+:::
+
+
+In conclusione: l'ordine di esecuzione casuale assieme allo studio dei residui consente di evidenziare eventuali effetti modificanti e di eliminarli dalla regressione.
+
+
+
+
+# Metodo Monte Carlo
+
+Il metodo Monte Carlo prevede la generazione casuale ("come alla roulette di monte Carlo") di un elevato numero di campioni casuali per simulare l'effetto di parametri aleatori in un modello computazionale.
+
+L'esempio più comune per illustrarne il funzionamento è l'approssimazione di $\pi$.
+
+Consideriamo il settore pari a un quarto di cerchio di raggio 1, inscritto in un quadrato di lato 1. il rapporto tra l'area del settore e l'area del quadrato è:
+
+$$
+\frac{A_c}{A_s} = \frac{\pi 1^2/4}{1} \approxeq \frac{\text{punti dentro il cerchio}}{\text{punti totali}}
+$$
+
+Cioè: se generiamo punti di coordinate casuali $x, y$ comprese tra 0 e 1, il rapporto tra i punti torali e i punti distanti meno di 1 dall'origine vale $\pi/4$.
+
+
+```{r}
+N <- 1e6
+p <- tibble(
+  x = runif(N),
+  y = runif(N),
+  inside = sqrt(x^2 + y^2) < 1
+)
+
+p %>% 
+  ggplot(aes(x=x, y=y, color=inside)) + 
+  geom_point() +
+  coord_equal()
+```
+
+
+er contare i punti possiamo filtrare:
+
+```{r}
+p %>% 
+  filter(inside) %>% 
+  pull(inside) %>% length() / N * 4
+```
+
+Oppure usare `summarise()`:
+
+```{r}
+p %>% 
+  summarise(count = sum(inside)/n()*4)
+```
+
+Rendiamo *generica* questa operazione, cioè tale che funzioni per un qualsiasi numero di punti generati `N`:
+
+```{r}
+set.seed(1)
+approxpi <- function(N) {
+  tibble(
+    x=runif(N),
+    y=runif(N),
+    inside = sqrt(x^2 + y^2) < 1
+  ) %>% 
+  summarise(pi = 4 * sum(inside)/n()) %>% 
+  pull(pi)
+}
+```
+
+Ora possiamo studiarne la convergenza a $\pi$:
+
+```{r}
+tibble(
+  N = 10^(1:8),
+  pi = map_dbl(N, \(x) approxpi(x))
+) %>% 
+  ggplot(aes(x=N, y=pi)) + 
+  geom_point() +
+  geom_line() +
+  geom_hline(yintercept = pi, color="red") + 
+  scale_x_log10()
+```
+
+
+## Calcolo dell'incertezza standard composta sul volume del cilindro
+
+
+```{r}
+set.seed(0)
+N <- 1e4 # Secondo GUM è il minimo
+rbar <- 120
+ur <- 0.5
+lbar <- 450
+ul <- 0.5
+
+mmt <- list(
+  mean = lbar,
+  variance = ul^2,
+  skewness = 1,
+  kurtosis = 5
+)
+
+data <- tibble(
+  r = rnorm(N, rbar, ur),
+  l = rpearson(N, moments=mmt)
+)
+```
+
+::: callout-note
+Si noti l'uso della funzione `PearsonDS::rpearson()`: essa produce numeri casuali distribuiti secondo la distribuzione di Pearson, una distribuzione generica che dipende dai quattro parametrio (o *momenti*) media, varianza, skewness (gobba a destra o sinistra) e curtosi (alta e snella o bassa e larga).
+:::
+
+Verifichiamo con istogrammi le due distribuzioni:
+
+```{r}
+data %>% 
+  ggplot(aes(x=r)) + 
+  geom_histogram(binwidth=ur/5, fill=gray(0.5), color="black")
+```
+
+
+
+```{r}
+data %>% 
+  ggplot(aes(x=l)) + 
+  geom_histogram(binwidth=ur/5, fill=gray(0.5), color="black")
+```
+
+::: {.callout-note}
+### Esercizio 
+
+Aggiungere media e media +- deviazione standard come linee verticali
+:::
+
+Studiamo ora la distribuzione del volume e calcoliamo il volume medio atteso e la relativa incertezza:
+
+```{r}
+data <- data %>% 
+  mutate(V = pi * r^2 * l / 1e6)
+
+(Vbar <- mean(data$V))
+(uV <- sd(data$V))
+
+
+data %>% 
+  ggplot(aes(x=V)) + 
+  geom_histogram(binwidth=uV/5, fill=gray(0.5), color="black") +
+  geom_vline(xintercept = c(Vbar, Vbar-uV, Vbar+uV), color="red")
 ```
